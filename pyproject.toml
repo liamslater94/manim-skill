@@ -9,3 +9,10 @@ dependencies = [
     "kokoro>=0.9.4",
     "soundfile",
 ]
+
+[project.optional-dependencies]
+# Narrate in your own cloned voice (tools/tts-generate.py --engine clone)
+clone = [
+    "qwen-tts>=0.1.1",
+    "torch",
+]

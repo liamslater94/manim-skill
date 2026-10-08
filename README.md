@@ -60,6 +60,15 @@ Narration uses [Kokoro TTS](https://github.com/hexgrad/kokoro), an open-weight
 text-to-speech model that runs locally without an API key. `uv sync` installs
 the Python dependencies.
 
+### Narrate in your own voice
+
+Put a 10–30 s recording of yourself and its exact transcript in
+`skills/manim-skill/voice/` as `reference.wav` and `reference.txt`, then run
+`bash skills/manim-skill/tools/setup-voice-clone.sh`. Every video is then
+narrated in your cloned voice, using Qwen3-TTS zero-shot cloning, locally.
+Spoken text uses British pronunciation, so `z` is read "zed". See
+[`skills/manim-skill/voice/README.md`](skills/manim-skill/voice/README.md).
+
 ## Where files go
 
 Every video is a flat session folder under one consistent home — **never** in

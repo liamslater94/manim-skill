@@ -1,3 +1,7 @@
 __pycache__/
 *.pyc
 .tts-cache/
+
+# Cloned-voice reference recording. Keep it out of git while this repo is
+# public — anyone with the clip can clone the voice. See skills/manim-skill/voice/README.md.
+skills/manim-skill/voice/reference.*

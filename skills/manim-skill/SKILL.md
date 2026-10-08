@@ -35,13 +35,17 @@ mkdir -p "$SESSION_DIR"
 cd "$SESSION_DIR"
 ```
 
-**Voiceover is on by default.** Skip narration, TTS, subtitle linting, muxing, and `add_subcaption()` only if the user asks for no TTS/narration/voiceover/captions, or the local `kokoro` package is not installed (then tell the user voiceover was skipped and that `uv add "kokoro>=0.9.4" soundfile` enables it).
+**Voiceover is on by default.** Skip narration, TTS, subtitle linting, muxing, and `add_subcaption()` only if the user asks for no TTS/narration/voiceover/captions, or no TTS engine is installed (then tell the user voiceover was skipped and that `uv add "kokoro>=0.9.4" soundfile` enables it).
+
+**The user's own cloned voice is the preferred narrator.** If `<TOOLS_DIR>/../voice/reference.txt` exists with a `reference.wav`/`.mp3` beside it, `tts-generate.py` narrates in that voice automatically. If the clip is missing, ask the user to upload a 10–30 s recording of themselves plus its exact words, save them as `voice/reference.wav` and `voice/reference.txt` (see `voice/README.md`), and run `bash <TOOLS_DIR>/setup-voice-clone.sh` once per session if `qwen_tts` is not importable. Only fall back to Kokoro if they decline. Model downloads need `huggingface.co` and `*.hf.co` on the network allowlist; if either is blocked, tell the user exactly which host failed.
 
 ## Workflow: Narration → TTS → Code → Render → Mux → View
 
 ### Phase 1: Narration
 
-When voiceover is enabled, write only the spoken lines in `narration.txt`, using the exact format below. Each entry becomes one TTS clip. Kokoro speaks ≈2.5 words/second — size the lines to the target video length. For silent videos, start with Code.
+When voiceover is enabled, write only the spoken lines in `narration.txt`, using the exact format below. Each entry becomes one TTS clip. Kokoro speaks ≈2.5 words/second, the cloned voice ≈3.2 — size the lines to the target video length.
+
+The narrator is British. Write British spellings and say "maths". A lone letter z (`z`, `3z`, `z-axis`) is spoken as "zed" automatically, so write it naturally in subtitles. Write maths as words, never symbols or LaTeX: "x squared plus two x", "seven quarters", "minus four y". When a single-letter variable could be misheard as an English word (a constant `a`), write it as a capital, "A". For silent videos, start with Code.
 
 ```
 subtitles:
@@ -56,7 +60,9 @@ subtitles:
 python "<TOOLS_DIR>/tts-generate.py" --narration narration.txt
 ```
 
-Local Kokoro voice `af_heart` by default; `--voice <name>` (e.g. `am_adam`, `bf_emma`) for another. Unchanged lines are served from `.tts-cache/`.
+Uses the cloned voice when `voice/reference.*` is set up, otherwise local Kokoro voice `af_heart`; `--engine kokoro --voice <name>` (e.g. `am_adam`, `bf_emma`) forces a Kokoro voice. Unchanged lines are served from `.tts-cache/`.
+
+The cloned voice runs at roughly 5–6 s of compute per second of speech on a 4-core CPU (much faster on a GPU), so run long narrations in the background. Listen for mispronounced or skipped words. To re-roll one line, run `--bust <index>` and then regenerate with `--seed-offset 1` (or 2, 3, …); that line gets a new take, and lines already in the cache keep theirs.
 
 Produces `voiceover.mp3` and `timestamps.json`. The run prints how many clips it found — confirm it matches your narration line count (a mismatch means the block didn't parse; fix the format in `narration.txt`). **Read `timestamps.json` before writing code** — each `duration_s` is the exact time budget for that subtitle's segment.
 
