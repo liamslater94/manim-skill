@@ -1,6 +1,6 @@
 ---
 name: manim-skill
-description: Create mathematical animations with Manim Community Edition(manimce), with optional TTS voiceover and synced subtitles. Generates distinctive, production-grade animations that avoid generic "AI slop" aesthetics. Use when user wants to animate concepts, equations, illustrate proofs, visualize algorithms, create math explainers, or produce 3Blue1Brown-style videos.
+description: Create mathematical animations with Manim Community Edition(manimce), with optional TTS voiceover (a stock voice or a local clone of the user's own voice) and synced subtitles. Generates distinctive, production-grade animations that avoid generic "AI slop" aesthetics. Use when user wants to animate concepts, equations, illustrate proofs, visualize algorithms, create math explainers, or produce 3Blue1Brown-style videos.
 ---
 
 You are a Manim animation expert. Create production-grade animations with Manim Community Edition (manimce).
@@ -35,20 +35,24 @@ mkdir -p "$SESSION_DIR"
 cd "$SESSION_DIR"
 ```
 
-**Voiceover is on by default.** Skip narration, TTS, subtitle linting, muxing, and `add_subcaption()` only if the user asks for no TTS/narration/voiceover/captions, or the local `kokoro` package is not installed (then tell the user voiceover was skipped and that `uv add "kokoro>=0.9.4" soundfile` enables it).
+**Voiceover is on by default.** Skip narration, TTS, subtitle linting, muxing, and `add_subcaption()` only if the user asks for no TTS/narration/voiceover/captions, or no TTS engine is available — neither the local `kokoro` package nor, when the user gave a voice sample, `sherpa-onnx` (then tell the user voiceover was skipped and that `uv add "kokoro>=0.9.4" soundfile` or `uv add sherpa-onnx soundfile` enables it).
+
+**Their own voice:** when the user provides a recording of themselves (or asks for "my voice"), narrate with `--clone <sample>` (Phase 2) instead of a Kokoro voice.
 
 ## Workflow: Narration → TTS → Code → Render → Mux → View
 
 ### Phase 1: Narration
 
-When voiceover is enabled, write only the spoken lines in `narration.txt`, using the exact format below. Each entry becomes one TTS clip. Kokoro speaks ≈2.5 words/second — size the lines to the target video length. For silent videos, start with Code.
+When voiceover is enabled, write only the spoken lines in `narration.txt`, using the exact format below. Each entry becomes one TTS clip. Kokoro speaks ≈2.5 words/second; a cloned voice speaks at the pace of its sample (often ≈2 words/second) — size the lines to the target video length. For silent videos, start with Code.
 
 ```
 subtitles:
 - First voiceover line.
-- Second voiceover line.
+- Second voiceover line, after which viewers need a moment. [pause 2.5]
 - Each entry becomes one TTS clip.
 ```
+
+For explainers, give viewers time to think: end a line with `[pause N]` after each worked step or key result (≈2–2.5 s), and use `--pause` (≈1 s) for the rest. The pause is silence appended to that line and is included in its `duration_s`; the hint is not part of the subtitle text. Write maths the way it should be heard ("x squared", "a minus nine") — the cloned voice's pronunciation of single letters and the variable *a* is fixed automatically.
 
 ### Phase 2: TTS
 
@@ -56,7 +60,19 @@ subtitles:
 python "<TOOLS_DIR>/tts-generate.py" --narration narration.txt
 ```
 
-Local Kokoro voice `af_heart` by default; `--voice <name>` (e.g. `am_adam`, `bf_emma`) for another. Unchanged lines are served from `.tts-cache/`.
+Local Kokoro voice `af_heart` by default; `--voice <name>` (e.g. `am_adam`, `bf_emma`) for another. Unchanged lines are served from `.tts-cache/`. Add `--pause 1` for a default breath after every line (see Phase 1).
+
+**Cloned voice** — narrate in the user's own voice from a recording of them:
+
+```
+python "<TOOLS_DIR>/tts-generate.py" --narration narration.txt --clone <sample.m4a> --qa --pause 1
+```
+
+- Read the sample from where the user put it; don't copy it into `SESSION_DIR`. Best is 5–30 s of clean, *expressive* speech — the clone copies the sample's tone and pace, so a lively sample gives a lively narrator. It is trimmed to ≈12 s at a pause and transcribed automatically (`--clone-text "..."` overrides).
+- `--qa` transcribes every take and retakes lines that don't match the script (`--retakes`, default 2); a `WARNING` line means listen to that clip and rephrase or `--bust` it. Keep `--qa` on for cloned voices.
+- `--speed 1.1` if the sample's pace makes the narration drag; `--clone-guidance` (default 1.5) trades expressiveness against stability.
+- ≈15–25 s of CPU per line; models (≈0.7 GB) download from GitHub on first use.
+- Re-runs (and `--bust`) must repeat the same `--clone`/`--speed`/`--clone-guidance` options to hit the cache; changing them re-voices every line.
 
 Produces `voiceover.mp3` and `timestamps.json`. The run prints how many clips it found — confirm it matches your narration line count (a mismatch means the block didn't parse; fix the format in `narration.txt`). **Read `timestamps.json` before writing code** — each `duration_s` is the exact time budget for that subtitle's segment.
 

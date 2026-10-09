@@ -60,6 +60,22 @@ Narration uses [Kokoro TTS](https://github.com/hexgrad/kokoro), an open-weight
 text-to-speech model that runs locally without an API key. `uv sync` installs
 the Python dependencies.
 
+## Narrate in your own voice
+
+Give your agent a short recording of yourself (5–30 s of clear, lively speech,
+any audio format) and ask for the video in your voice. The narration tool clones
+it locally with [ZipVoice](https://github.com/k2-fsa/ZipVoice) via sherpa-onnx,
+checks every line with a local speech recogniser and retakes any that come out
+garbled:
+
+```bash
+python skills/manim-skill/tools/tts-generate.py --clone me.m4a --qa --pause 1
+```
+
+Add `[pause 2.5]` to the end of a narration line to give viewers time to think
+after a worked step. The clone copies your sample's tone and pace — record it
+the way you'd like to sound in the video.
+
 ## Where files go
 
 Every video is a flat session folder under one consistent home — **never** in
