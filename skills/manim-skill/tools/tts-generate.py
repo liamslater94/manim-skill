@@ -248,7 +248,12 @@ _NUMBERS = "zero one two three four five six seven eight nine ten".split()
 
 
 def _words(text: str) -> list[str]:
-    text = text.lower().replace("-", " ")
+    """Normalise to spoken words; the recogniser writes maths as symbols ("5x + y = -1")."""
+    text = text.lower()
+    text = re.sub(r"(\d)([a-z])", r"\1 \2", text)                       # 5x -> 5 x
+    text = text.replace("=", " equals ").replace("+", " plus ").replace("/", " over ")
+    text = re.sub(r"(?<![a-z])-(?=\s*[\da-z(])", " minus ", text)          # minus sign, not a hyphen
+    text = text.replace("-", " ")
     text = re.sub(r"\d+", lambda m: number_words(m.group()), text)
     text = re.sub(r"[^a-z ]", " ", text)
     same = {"x": "ex", "y": "why", "z": "zee", "t": "tee", "uh": "a", "eigh": "a", "summarise": "summarize"}
