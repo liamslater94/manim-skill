@@ -64,6 +64,7 @@ subtitles keep the original wording.
 | `--retakes` | 2 | extra takes per line with `--qa` (best take wins) |
 | `--clone-guidance` | 1.5 | higher = more expressive / closer to the sample, lower = steadier |
 | `--clone-steps` | 4 | sampling steps |
+| `--say` | — | respell a letter/word for the cloned voice, e.g. `--say z=zed` (repeatable) |
 | `--speed` | 1 | speaking-rate multiplier (both engines) |
 
 Models (≈0.7 GB: ZipVoice, Vocos vocoder, Whisper base.en) download from the

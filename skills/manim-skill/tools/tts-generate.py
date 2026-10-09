@@ -256,7 +256,8 @@ def _words(text: str) -> list[str]:
     text = text.replace("-", " ")
     text = re.sub(r"\d+", lambda m: number_words(m.group()), text)
     text = re.sub(r"[^a-z ]", " ", text)
-    same = {"x": "ex", "y": "why", "z": "zee", "t": "tee", "uh": "a", "eigh": "a", "summarise": "summarize"}
+    same = {"x": "ex", "y": "why", "z": "zee", "zed": "zee", "t": "tee", "uh": "a", "eigh": "a",
+            "summarise": "summarize"}
     return [same.get(w, w) for w in text.split()]
 
 
@@ -275,7 +276,7 @@ MATH_FOLLOWERS = r"minus|plus|times|over|equals?|is|isn't|squared|cubed|can|coul
 LETTER_WORDS = {"x": "ex", "y": "why", "z": "zee", "t": "tee", "b": "bee", "c": "see", "k": "kay", "n": "en"}
 
 
-def speakable(text: str) -> str:
+def speakable(text: str, say: dict[str, str] | None = None) -> str:
     """
     Text actually sent to the cloned voice (subtitles keep the original).
     ZipVoice is a Chinese/English model, so a lone "a" is read as the pinyin
@@ -285,7 +286,10 @@ def speakable(text: str) -> str:
     text = re.sub(r"\b(constant|parameter|variable) a\b", r"\1 eigh", text)
     text = re.sub(r"\ba\b(?=\s*(?:[.,;:!?)]|$))", "eigh", text)
     text = re.sub(r"\ba\b", "uh", text)                                      # the article
-    text = re.sub(r"\b([xyztbckn])\b", lambda m: LETTER_WORDS[m.group(1)], text)
+    words = {**LETTER_WORDS, **(say or {})}
+    if words:
+        text = re.sub(r"\b(" + "|".join(map(re.escape, sorted(words, key=len, reverse=True))) + r")\b",
+                      lambda m: words[m.group(1)], text)
     return text
 
 
@@ -342,7 +346,7 @@ def synthesize_clone(items, voice, opts, transcriber=None) -> dict[int, str]:
     for index, text, out_path in items:
         best, best_acc = None, -1.0
         for take in range(1 + (opts.retakes if transcriber else 0)):
-            gen = model.generate(speakable(text), prompt_text, prompt.tolist(), CLONE_SR,
+            gen = model.generate(speakable(text, opts.say), prompt_text, prompt.tolist(), CLONE_SR,
                                  speed=opts.speed, num_steps=opts.clone_steps)
             audio = tidy(np.asarray(gen.samples, np.float32), gen.sample_rate)
             if transcriber is None:
@@ -419,6 +423,8 @@ def main() -> None:
     parser.add_argument("--clone-guidance", type=float, default=1.5,
                         help="How strongly the clone follows the sample's voice and expression (default 1.5)")
     parser.add_argument("--clone-steps", type=int, default=4, help="ZipVoice sampling steps (default 4)")
+    parser.add_argument("--say", action="append", default=[], metavar="WORD=SPOKEN",
+                        help="Cloned voice: how to say a letter or word, e.g. --say z=zed (repeatable)")
     parser.add_argument("--speed", type=float, default=None,
                         help="Speaking-rate multiplier (default 1; Kokoro also honours KOKORO_SPEED)")
     parser.add_argument("--pause", type=float, default=0.0,
@@ -431,6 +437,10 @@ def main() -> None:
     parser.add_argument("--bust", metavar="INDEX_OR_TEXT",
                         help="Drop the cached clip for a subtitle by 0-based index or text match, then exit")
     args = parser.parse_args()
+    try:
+        args.say = dict(item.split("=", 1) for item in args.say)
+    except ValueError:
+        sys.exit("Error: --say takes WORD=SPOKEN, e.g. --say z=zed")
 
     if args.speed is not None and not args.clone:
         os.environ["KOKORO_SPEED"] = f"{args.speed:g}"
@@ -444,9 +454,10 @@ def main() -> None:
             sys.exit(f"Error: voice sample not found: {args.clone}")
         voice = prepare_voice(args.clone, args.clone_text)
         extra = {"engine": "zipvoice", "model_id": ZIPVOICE_MODEL, "speed": f"{args.speed:g}",
-                 "guidance": args.clone_guidance, "steps": args.clone_steps, "pronounce": 2}
+                 "guidance": args.clone_guidance, "steps": args.clone_steps}
         voice_id, label = f"clone:{voice[2]}", f"cloned from {Path(args.clone).name}"
-        key_for = lambda text: cache_path(text, voice_id, extra=extra)  # noqa: E731
+        # keyed on the exact words spoken, so a pronunciation change re-voices only the lines it touches
+        key_for = lambda text: cache_path(text, voice_id, extra={**extra, "spoken": speakable(text, args.say)})  # noqa: E731
     else:
         voice_id, label = args.voice, f"Kokoro {args.voice}"
         key_for = lambda text: cache_path(text, voice_id)  # noqa: E731
