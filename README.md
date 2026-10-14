@@ -54,11 +54,35 @@ in the animation code, without creating a separate plan document.
    update the affected scenes. Reload the viewer to watch the revised video
    and repeat as needed.
 
+## Manim Studio: questions in, videos out
+
+Prefer an app to the terminal? [Manim Studio](studio/README.md) runs on your computer: paste
+a maths question (text or a screenshot), check the script Claude writes, and get back a
+narrated video in your own voice, with a 1080p export and YouTube title, description and
+chapters. Double-click `studio/Manim Studio.command` (macOS) or run
+`.venv/bin/python studio/studio.py`.
+
 ## Local voiceover with Kokoro TTS
 
 Narration uses [Kokoro TTS](https://github.com/hexgrad/kokoro), an open-weight
 text-to-speech model that runs locally without an API key. `uv sync` installs
 the Python dependencies.
+
+## Narrate in your own voice
+
+Give your agent a short recording of yourself (5–30 s of clear, lively speech,
+any audio format) and ask for the video in your voice. The narration tool clones
+it locally with [ZipVoice](https://github.com/k2-fsa/ZipVoice) via sherpa-onnx,
+checks every line with a local speech recogniser and retakes any that come out
+garbled:
+
+```bash
+python skills/manim-skill/tools/tts-generate.py --clone me.m4a --qa --pause 1
+```
+
+Add `[pause 2.5]` to the end of a narration line to give viewers time to think
+after a worked step. The clone copies your sample's tone and pace — record it
+the way you'd like to sound in the video.
 
 ## Where files go
 

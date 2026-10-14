@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manim Studio</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Ccircle cx=%228%22 cy=%228%22 r=%226%22 fill=%22%232BB5A0%22/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg-main: #f8f8f7; --bg-card: #ffffff; --bg-soft: #f2f2f0; --bg-hover: #ececea;
+    --text-primary: #34322d; --text-secondary: #5e5e5b; --text-tertiary: #858481;
+    --border: rgba(0,0,0,0.08); --border-input: rgba(0,0,0,0.14);
+    --accent: #2BB5A0; --accent-hover: #239687; --accent-muted: rgba(43,181,160,0.14);
+    --warn: #c98a12; --warn-muted: rgba(201,138,18,0.12);
+    --danger: #d0453b; --danger-muted: rgba(208,69,59,0.10);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Figtree", sans-serif;
+    --mono: "SF Mono", Menlo, Monaco, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg-main: #161616; --bg-card: #1f1f1f; --bg-soft: #262626; --bg-hover: #2e2e2e;
+      --text-primary: #ececeb; --text-secondary: #b6b6b3; --text-tertiary: #8a8a87;
+      --border: rgba(255,255,255,0.08); --border-input: rgba(255,255,255,0.16);
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font); background: var(--bg-main); color: var(--text-primary);
+         font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  .app { display: grid; grid-template-columns: 280px 1fr; height: 100vh; }
+  .app > * { min-width: 0; }
+  h1, .sub { overflow-wrap: anywhere; }
+  aside { border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+  .brand { padding: 18px 18px 12px; font-weight: 650; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .brand .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+  .side-actions { padding: 0 12px 10px; display: flex; gap: 8px; }
+  .jobs { overflow-y: auto; padding: 4px 8px 16px; flex: 1; }
+  .job { padding: 9px 10px; border-radius: 8px; cursor: pointer; margin-bottom: 2px; }
+  .job:hover { background: var(--bg-hover); }
+  .job.active { background: var(--accent-muted); }
+  .job .t { font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .job .s { font-size: 12px; color: var(--text-tertiary); display: flex; align-items: center; gap: 6px; }
+  .empty-side { color: var(--text-tertiary); padding: 12px 10px; font-size: 13px; }
+  main { overflow-y: auto; min-height: 0; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 28px 32px 60px; }
+  h1 { font-size: 22px; font-weight: 650; margin-bottom: 4px; }
+  h2 { font-size: 15px; font-weight: 650; margin-bottom: 10px; }
+  .sub { color: var(--text-tertiary); font-size: 13px; }
+  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-top: 16px; }
+  label { display: block; font-size: 13px; font-weight: 550; color: var(--text-secondary); margin: 12px 0 6px; }
+  textarea, input[type=text], input[type=number], select {
+    width: 100%; font: inherit; color: var(--text-primary); background: var(--bg-card);
+    border: 1px solid var(--border-input); border-radius: 8px; padding: 9px 11px; }
+  textarea { resize: vertical; min-height: 90px; }
+  textarea.mono, pre { font-family: var(--mono); font-size: 12.5px; line-height: 1.55; }
+  textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+  .row { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 160px; }
+  .btn { font: inherit; font-weight: 550; border: 1px solid var(--border-input); background: var(--bg-card);
+         color: var(--text-primary); border-radius: 8px; padding: 8px 14px; cursor: pointer; white-space: nowrap; }
+  .btn:hover { background: var(--bg-hover); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-hover); }
+  .btn.danger { color: var(--danger); }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn.full { width: 100%; }
+  .actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+  .pill { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: var(--bg-soft); color: var(--text-secondary); white-space: nowrap; }
+  .pill.wait { background: var(--warn-muted); color: var(--warn); }
+  .pill.run { background: var(--accent-muted); color: var(--accent-hover); }
+  .pill.ok { background: var(--accent); color: #fff; }
+  .pill.bad { background: var(--danger-muted); color: var(--danger); }
+  .spin { width: 12px; height: 12px; border: 2px solid var(--accent-muted); border-top-color: var(--accent); border-radius: 50%; animation: s 0.9s linear infinite; display: inline-block; }
+  @keyframes s { to { transform: rotate(360deg); } }
+  .steps { display: flex; gap: 0; margin-top: 18px; }
+  .step { flex: 1; padding: 10px 12px; border-top: 3px solid var(--bg-hover); color: var(--text-tertiary); font-size: 13px; font-weight: 550; }
+  .step.done { border-color: var(--accent); color: var(--text-secondary); }
+  .step.now { border-color: var(--accent); color: var(--text-primary); }
+  .step .n { font-size: 11.5px; font-weight: 500; color: var(--text-tertiary); }
+  .banner { margin-top: 16px; padding: 12px 14px; border-radius: 10px; display: flex; gap: 12px; align-items: center; }
+  .banner.run { background: var(--accent-muted); }
+  .banner.wait { background: var(--warn-muted); }
+  .banner.bad { background: var(--danger-muted); }
+  .banner .msg { flex: 1; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid2 > .card { margin-top: 0; }
+  pre { white-space: pre-wrap; word-wrap: break-word; background: var(--bg-soft); border-radius: 8px; padding: 12px; max-height: 520px; overflow: auto; }
+  pre.log { max-height: 340px; color: var(--text-secondary); }
+  video { width: 100%; border-radius: 10px; background: #000; display: block; }
+  details summary { cursor: pointer; font-weight: 600; color: var(--text-secondary); }
+  .qimg { max-width: 100%; max-height: 260px; border-radius: 8px; border: 1px solid var(--border); margin-top: 10px; }
+  .paste { border: 1.5px dashed var(--border-input); border-radius: 10px; padding: 14px; color: var(--text-tertiary); text-align: center; margin-top: 10px; cursor: pointer; }
+  .paste.has { border-style: solid; }
+  .paste img { max-height: 220px; max-width: 100%; border-radius: 6px; display: block; margin: 0 auto 8px; }
+  .health { margin-top: 10px; }
+  .health li { margin: 4px 0 4px 18px; }
+  .hint { font-size: 12.5px; color: var(--text-tertiary); margin-top: 6px; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #27272a; color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 10; }
+  .toast.show { opacity: 1; }
+  .muted { color: var(--text-tertiary); }
+  @media (max-width: 860px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; min-height: 100vh; }
+    aside { border-right: none; border-bottom: 1px solid var(--border); max-height: 40vh; }
+    .grid2 { grid-template-columns: 1fr; }
+    .wrap { padding: 20px 16px 48px; }
+    .steps .n { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="brand"><span class="dot"></span>Manim Studio</div>
+    <div class="side-actions">
+      <button class="btn primary full" onclick="go('new')">+ New video</button>
+      <button class="btn" onclick="go('settings')" title="Voice & settings">⚙</button>
+    </div>
+    <div class="jobs" id="jobs"></div>
+  </aside>
+  <main><div class="wrap" id="view"></div></main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const STATUS = {
+  queued_script: ["Waiting to write script", "run"], scripting: ["Writing script", "run"],
+  script_ready: ["Check the script", "wait"],
+  queued_voice: ["Waiting to voice", "run"], voicing: ["Recording voice", "run"],
+  queued_video: ["Waiting to animate", "run"], rendering: ["Animating", "run"],
+  review: ["Watch & review", "wait"],
+  queued_revise: ["Waiting to apply changes", "run"], revising: ["Applying your changes", "run"],
+  queued_export: ["Waiting to export", "run"], exporting: ["Exporting 1080p", "run"],
+  done: ["Ready for YouTube", "ok"], failed: ["Failed", "bad"], cancelled: ["Cancelled", "bad"],
+};
+const STEP_OF = { queued_script: 0, scripting: 0, script_ready: 0, queued_voice: 1, voicing: 1,
+  queued_video: 2, rendering: 2, review: 2, queued_revise: 2, revising: 2, queued_export: 3, exporting: 3, done: 4 };
+const RUN_TEXT = {
+  scripting: "Claude is writing the narration and a worked solution for you to check.",
+  voicing: "Narrating in your voice and checking every take. This takes a few minutes.",
+  rendering: "Claude is writing and rendering the animation, then checking frames. Usually 10–25 minutes.",
+  revising: "Claude is applying your notes and re-rendering the affected scenes.",
+  exporting: "Rendering the final 1080p version and writing the YouTube text.",
+};
+let state = { view: "new", jobs: [], job: null, health: null, settings: null, image: null };
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+async function api(path, body) {
+  const opts = body === undefined ? {} : { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body) };
+  const r = await fetch(path, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2600); }
+async function act(action, body = {}) {
+  try { state.job = await api(`/api/jobs/${state.job.id}/${action}`, body); await refresh(true); }
+  catch (e) { toast(e.message); }
+}
+function go(view) {
+  if (view !== state.view) { state.job = null; state.dirty = false; lastSig = ""; }
+  state.view = view;
+  history.replaceState(null, "", view.startsWith("job:") ? "#" + view : location.pathname);
+  render(); refresh(true);
+}
+
+function pill(status) { const [t, c] = STATUS[status] || [status, ""]; return `<span class="pill ${c}">${c === "run" && !status.startsWith("queued") ? '<span class="spin"></span> ' : ""}${esc(t)}</span>`; }
+
+function renderJobs() {
+  const el = $("#jobs");
+  if (!state.jobs.length) { el.innerHTML = `<div class="empty-side">Your videos will appear here.</div>`; return; }
+  el.innerHTML = state.jobs.map(j => `<div class="job ${state.view === "job:" + j.id ? "active" : ""}" onclick="go('job:${j.id}')">
+    <div class="t">${esc(j.title)}</div><div class="s">${pill(j.status)}</div></div>`).join("");
+}
+
+function healthCard() {
+  const h = state.health; if (!h) return "";
+  const c = h.checks, miss = [];
+  if (!c.claude) miss.push("<b>Claude Code</b> isn't on PATH: install it (<code>brew install --cask claude-code</code>) and sign in, or set its path in Settings.");
+  if (!c.manim) miss.push("<b>manim</b> isn't importable: start the studio from the project's environment (<code>source ~/manim-skill/.venv/bin/activate</code>).");
+  if (!c.latex) miss.push("<b>LaTeX</b> isn't on PATH: <code>brew install --cask mactex-no-gui</code>, then open a new terminal.");
+  if (!c.ffmpeg) miss.push("<b>ffmpeg</b> is missing: <code>brew install ffmpeg</code>.");
+  if (!c.voice_sample) miss.push("No <b>voice sample</b> yet: add one in <a href=\"#\" onclick=\"go('settings');return false\">Settings</a>, or videos use the stock Kokoro voice.");
+  else if (!c.sherpa_onnx) miss.push("<b>sherpa-onnx</b> is missing (needed for your voice): <code>uv sync</code> in the project folder.");
+  if (!miss.length) return "";
+  return `<div class="card"><h2>Before your first video</h2><ul class="health">${miss.map(m => `<li>${m}</li>`).join("")}</ul></div>`;
+}
+
+function renderNew() {
+  const s = state.settings || {};
+  $("#view").innerHTML = `
+    <h1>New explainer video</h1>
+    <div class="sub">Paste a question or topic. Claude writes a script for you to check, your voice narrates it, and the animation is built to match.</div>
+    ${healthCard()}
+    <div class="card">
+      <label for="q">Question or topic</label>
+      <textarea id="q" rows="7" placeholder="e.g. Use mathematical induction to prove that 5ⁿ − 1 is divisible by 4 for all n ∈ ℤ⁺.&#10;&#10;Or a topic: 'Why the derivative of sin x is cos x'"></textarea>
+      <div class="paste" id="paste" tabindex="0">Paste a screenshot of the question here (⌘V), or click to choose an image</div>
+      <input type="file" id="file" accept="image/*" hidden>
+      <div class="row">
+        <div><label for="aud">Audience</label><input type="text" id="aud" value="${esc(s.audience || "")}"></div>
+        <div style="max-width:180px"><label for="min">Target length (min)</label><input type="number" id="min" min="1" max="20" step="0.5" value="${esc(s.minutes || 4)}"></div>
+      </div>
+      <div class="actions"><button class="btn primary" id="create">Write the script</button>
+      <span class="muted" id="cmsg"></span></div>
+    </div>`;
+  const paste = $("#paste");
+  const showImage = () => { paste.classList.toggle("has", !!state.image);
+    paste.innerHTML = state.image ? `<img src="${state.image.data}" alt="Question image"><span>Image attached · <a href="#" id="rmimg">remove</a></span>` : "Paste a screenshot of the question here (⌘V), or click to choose an image";
+    const rm = $("#rmimg"); if (rm) rm.onclick = (e) => { e.preventDefault(); e.stopPropagation(); state.image = null; showImage(); }; };
+  const readFile = (f) => { if (!f || !f.type.startsWith("image/")) return; const r = new FileReader(); r.onload = () => { state.image = { type: f.type, data: r.result }; showImage(); }; r.readAsDataURL(f); };
+  paste.onclick = () => $("#file").click();
+  $("#file").onchange = (e) => readFile(e.target.files[0]);
+  document.onpaste = (e) => { if (state.view !== "new") return; const item = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith("image/")); if (item) { e.preventDefault(); readFile(item.getAsFile()); } };
+  showImage();
+  $("#create").onclick = async () => {
+    const btn = $("#create"); btn.disabled = true; $("#cmsg").textContent = "Starting…";
+    try {
+      const job = await api("/api/jobs", { question: $("#q").value, audience: $("#aud").value, minutes: parseFloat($("#min").value) || 4, image: state.image });
+      state.image = null; go("job:" + job.id);
+    } catch (e) { toast(e.message); btn.disabled = false; $("#cmsg").textContent = ""; }
+  };
+}
+
+function renderSettings() {
+  const s = state.settings; if (!s) { $("#view").innerHTML = "Loading…"; return; }
+  const voiceName = s.voice_sample ? s.voice_sample.split("/").pop() : "";
+  $("#view").innerHTML = `
+    <h1>Voice & settings</h1>
+    <div class="card">
+      <h2>Your voice</h2>
+      <div class="sub">5–30 seconds of you speaking clearly and with energy, recorded indoors. The clone copies your tone and pace, so record it the way you want to sound in videos.</div>
+      <div class="actions"><input type="file" id="voice" accept="audio/*,video/*" hidden>
+        <button class="btn" onclick="$('#voice').click()">${voiceName ? "Replace voice sample" : "Upload voice sample"}</button>
+        <span class="${voiceName ? "" : "muted"}">${voiceName ? "✓ " + esc(voiceName) : "No sample yet: the stock Kokoro voice will be used"}</span></div>
+      <div class="row">
+        <div><label for="say">Pronunciations</label><input type="text" id="say" value="${esc(s.say)}"><div class="hint">e.g. <code>z=zed</code>. Comma-separated <code>word=spoken</code> pairs.</div></div>
+        <div><label for="speed">Speaking speed</label><input type="number" id="speed" step="0.05" min="0.7" max="1.5" value="${s.speed}"></div>
+        <div><label for="pause">Pause after each line (s)</label><input type="number" id="pause" step="0.25" min="0" max="5" value="${s.pause}"></div>
+        <div><label for="guid">Expressiveness</label><input type="number" id="guid" step="0.1" min="0.5" max="3" value="${s.guidance}"><div class="hint">Higher = livelier, lower = steadier (default 1.5).</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Defaults for new videos</h2>
+      <div class="row">
+        <div><label for="saud">Audience</label><input type="text" id="saud" value="${esc(s.audience)}"></div>
+        <div style="max-width:200px"><label for="smin">Target length (min)</label><input type="number" id="smin" step="0.5" min="1" max="20" value="${s.minutes}"></div>
+      </div>
+      <div class="row">
+        <div><label for="claude">Claude Code command</label><input type="text" id="claude" value="${esc(s.claude)}"></div>
+        <div><label for="model">Model (optional)</label><input type="text" id="model" value="${esc(s.model)}" placeholder="default"></div>
+      </div>
+      <div class="actions"><button class="btn primary" id="save">Save settings</button></div>
+    </div>
+    ${healthCard()}`;
+  $("#voice").onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    try { const r = await fetch("/api/voice", { method: "POST", headers: { "X-Filename": f.name }, body: f });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error); state.settings = d; toast("Voice sample saved"); await refresh(true); renderSettings();
+    } catch (err) { toast(err.message); }
+  };
+  $("#save").onclick = async () => {
+    try { state.settings = await api("/api/settings", { say: $("#say").value, speed: +$("#speed").value, pause: +$("#pause").value,
+      guidance: +$("#guid").value, audience: $("#saud").value, minutes: +$("#smin").value, claude: $("#claude").value, model: $("#model").value });
+      toast("Settings saved"); } catch (e) { toast(e.message); }
+  };
+}
+
+function stepper(status) {
+  const at = status === "failed" || status === "cancelled" ? -1 : (STEP_OF[status] ?? 0);
+  const names = [["Script", "Claude writes, you check"], ["Voice", "your cloned voice"], ["Video", "animation + your review"], ["Export", "1080p + YouTube text"]];
+  return `<div class="steps">${names.map(([n, d], i) => `<div class="step ${i < at ? "done" : i === at ? "now" : ""}">${n}<div class="n">${d}</div></div>`).join("")}</div>`;
+}
+
+function renderJob() {
+  const j = state.job; if (!j) { $("#view").innerHTML = `<div class="muted">Loading…</div>`; return; }
+  const v = (name) => j.files[name] ? `/files/${j.id}/${name}?v=${j.files[name]}` : "";
+  const running = RUN_TEXT[j.status];
+  let banner = "";
+  if (running) banner = `<div class="banner run"><span class="spin"></span><div class="msg">${running}</div><button class="btn" onclick="act('cancel')">Cancel</button></div>`;
+  else if (j.status.startsWith("queued_")) banner = `<div class="banner run"><div class="msg">${esc(STATUS[j.status][0])}: another video is using the renderer; this starts automatically.</div><button class="btn" onclick="act('cancel')">Cancel</button></div>`;
+  else if (j.status === "script_ready") banner = `<div class="banner wait"><div class="msg"><b>Your turn:</b> check the worked solution and narration. Edit directly or ask for changes, then approve.</div></div>`;
+  else if (j.status === "review") banner = `<div class="banner wait"><div class="msg"><b>Your turn:</b> watch the video. Note anything to fix (use “Add timestamp”), or export it for YouTube.</div></div>`;
+  else if (j.status === "failed" || j.status === "cancelled") banner = `<div class="banner bad"><div class="msg"><b>${j.status === "failed" ? "Something went wrong" : "Cancelled"}</b>${j.error ? ": " + esc(j.error) : ""}. The activity log below has details.</div><button class="btn primary" onclick="act('retry')">Retry</button></div>`;
+  else if (j.status === "done") banner = `<div class="banner run"><div class="msg"><b>Done.</b> Download the 1080p video and paste the YouTube text below.</div></div>`;
+
+  const question = `<details class="card" ${["queued_script","scripting"].includes(j.status) ? "open" : ""}><summary>Question</summary>
+    <pre style="margin-top:10px">${esc(j.question || "(from image)")}</pre>${j.image && v(j.image) ? `<img class="qimg" src="${v(j.image)}" alt="Question image">` : ""}</details>`;
+
+  let body = "";
+  if (j.status === "script_ready") {
+    body = `<div class="grid2" style="margin-top:16px">
+      <div class="card"><h2>Outline & worked solution</h2><pre>${esc(j.outline || "(no outline)")}</pre></div>
+      <div class="card"><h2>Narration</h2><textarea class="mono" id="narr" rows="22">${esc(j.narration)}</textarea>
+        <div class="hint">One line per subtitle. <code>[pause 2.5]</code> adds thinking time after a line.</div>
+        <div class="actions"><button class="btn" onclick="saveNarration()">Save edits</button></div></div></div>
+      <div class="card"><h2>Ask Claude for changes</h2><textarea id="notes" rows="3" placeholder="e.g. Explain why we can divide by 4 more slowly, and add a check of the base case n = 1."></textarea>
+        <div class="actions"><button class="btn" onclick="act('rescript', {notes: $('#notes').value})">Rewrite script</button>
+        <span style="flex:1"></span><button class="btn primary" onclick="approve()">Approve → voice & animate</button></div></div>`;
+  } else if (["review", "done"].includes(j.status) || (v("video.mp4") && !["scripting","queued_script"].includes(j.status))) {
+    const final = j.status === "done" && v("video_1080p.mp4");
+    body = `<div class="card"><h2>${final ? "Final video (1080p)" : "Video"}</h2>
+      ${v(final ? "video_1080p.mp4" : "video.mp4") ? `<video id="player" controls preload="metadata" src="${v(final ? "video_1080p.mp4" : "video.mp4")}"></video>` : `<div class="muted">The video will appear here.</div>`}
+      ${final ? `<div class="actions"><a class="btn primary" href="${v("video_1080p.mp4")}" download="${j.id}.mp4">Download 1080p MP4</a></div>` : ""}</div>`;
+    if (["review", "done"].includes(j.status)) {
+      body += `<div class="card"><h2>Changes</h2><textarea id="notes" rows="4" placeholder="e.g. [0:42] the label overlaps the plane: move it up. [1:30] say this step more slowly."></textarea>
+        <div class="actions"><button class="btn" onclick="addStamp()">Add timestamp</button><button class="btn" onclick="act('revise', {notes: $('#notes').value})">Apply changes</button>
+        <span style="flex:1"></span><button class="btn primary" onclick="act('export')">${j.status === "done" ? "Re-export" : "Export for YouTube"}</button></div></div>`;
+    }
+    if (j.youtube) body += `<div class="card"><h2>YouTube title, description & chapters</h2><textarea class="mono" id="yt" rows="12" readonly>${esc(j.youtube)}</textarea>
+      <div class="actions"><button class="btn" onclick="navigator.clipboard.writeText($('#yt').value).then(() => toast('Copied'))">Copy</button></div></div>`;
+    if (j.narration) body += `<details class="card"><summary>Narration</summary><pre style="margin-top:10px">${esc(j.narration)}</pre></details>`;
+  }
+  const logOpen = !!running || ["failed", "cancelled"].includes(j.status);
+  const prev = $("#log"); const stick = !prev || prev.scrollHeight - prev.scrollTop - prev.clientHeight < 30;
+  const keep = { notes: $("#notes")?.value, narr: document.activeElement?.id === "narr" || state.dirty ? $("#narr")?.value : null, t: $("#player")?.currentTime, paused: $("#player")?.paused ?? true, src: $("#player")?.getAttribute("src") };
+  $("#view").innerHTML = `
+    <div class="row" style="align-items:flex-start"><div style="flex:3"><h1>${esc(j.title)}</h1><div class="sub">${pill(j.status)} &nbsp;${esc(j.folder)}</div></div>
+      <div style="flex:0;min-width:auto"><button class="btn danger" onclick="del()">Delete</button></div></div>
+    ${stepper(j.status)}${banner}${question}${body}
+    <details class="card" id="logbox" ${logOpen || state.logOpen ? "open" : ""}><summary>Activity log</summary><pre class="log" id="log" style="margin-top:10px">${esc(j.log || "")}</pre></details>`;
+  $("#logbox").ontoggle = (e) => state.logOpen = e.target.open;
+  if (keep.notes && $("#notes")) $("#notes").value = keep.notes;
+  if (keep.narr != null && $("#narr")) { $("#narr").value = keep.narr; }
+  if ($("#narr")) $("#narr").oninput = () => state.dirty = true;
+  const p = $("#player");
+  if (p && keep.src === p.getAttribute("src") && keep.t) { p.currentTime = keep.t; if (!keep.paused) p.play(); }
+  const log = $("#log"); if (log && stick) log.scrollTop = log.scrollHeight;
+}
+
+async function saveNarration() { await act("narration", { text: $("#narr").value }); state.dirty = false; toast("Narration saved"); }
+async function approve() { if (state.dirty) await saveNarration(); await act("approve"); }
+async function del() { if (confirm("Delete this video and all its files?")) { await api(`/api/jobs/${state.job.id}/delete`, {}); go("new"); } }
+function addStamp() {
+  const p = $("#player"), n = $("#notes"); if (!p || !n) return;
+  const t = Math.floor(p.currentTime), stamp = `[${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}] `;
+  const at = n.selectionStart ?? n.value.length;
+  n.value = n.value.slice(0, at) + (at && !/\s$/.test(n.value.slice(0, at)) ? "\n" : "") + stamp + n.value.slice(at); n.focus();
+}
+
+function render() {
+  renderJobs();
+  if (state.view === "new") renderNew();
+  else if (state.view === "settings") renderSettings();
+  else renderJob();
+}
+
+let lastSig = "";
+async function refresh(force = false) {
+  try {
+    state.jobs = await api("/api/jobs");
+    renderJobs();
+    if (state.view.startsWith("job:")) {
+      const j = await api(`/api/jobs/${state.view.slice(4)}`);
+      const sig = JSON.stringify([j.status, j.updated, j.log.length, j.files, j.youtube.length]);
+      if (force || sig !== lastSig || !state.job) {
+        const statusChanged = state.job && state.job.status !== j.status;
+        state.job = j; lastSig = sig;
+        const typing = ["notes", "narr"].includes(document.activeElement?.id);
+        if (!typing || statusChanged || force) renderJob();
+        else { const log = $("#log"); if (log) { const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 30; log.textContent = j.log; if (stick) log.scrollTop = log.scrollHeight; } }
+      }
+    }
+  } catch (e) { /* server restarting */ }
+}
+
+(async () => {
+  [state.settings, state.health] = await Promise.all([api("/api/settings"), api("/api/health")]);
+  state.view = location.hash.startsWith("#job:") ? location.hash.slice(1) : "new";
+  render(); refresh(true);
+  setInterval(refresh, 2000);
+})();
+window.addEventListener("hashchange", () => { if (location.hash.startsWith("#job:") && location.hash.slice(1) !== state.view) go(location.hash.slice(1)); });
+</script>
+</body>
+</html>
