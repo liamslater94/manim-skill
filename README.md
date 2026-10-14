@@ -54,6 +54,14 @@ in the animation code, without creating a separate plan document.
    update the affected scenes. Reload the viewer to watch the revised video
    and repeat as needed.
 
+## Manim Studio: questions in, videos out
+
+Prefer an app to the terminal? [Manim Studio](studio/README.md) runs on your computer: paste
+a maths question (text or a screenshot), check the script Claude writes, and get back a
+narrated video in your own voice, with a 1080p export and YouTube title, description and
+chapters. Double-click `studio/Manim Studio.command` (macOS) or run
+`.venv/bin/python studio/studio.py`.
+
 ## Local voiceover with Kokoro TTS
 
 Narration uses [Kokoro TTS](https://github.com/hexgrad/kokoro), an open-weight
