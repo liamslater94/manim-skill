@@ -303,7 +303,7 @@ function renderJob() {
       ${final ? `<div class="actions"><a class="btn primary" href="${v("video_1080p.mp4")}" download="${j.id}.mp4">Download 1080p MP4</a></div>` : ""}</div>`;
     if (["review", "done"].includes(j.status)) {
       body += `<div class="card"><h2>Changes</h2><textarea id="notes" rows="4" placeholder="e.g. [0:42] the label overlaps the plane: move it up. [1:30] say this step more slowly."></textarea>
-        <div class="actions"><button class="btn" onclick="addStamp()">Add timestamp</button><button class="btn" onclick="act('revise', {notes: $('#notes').value})">Apply changes</button>
+        <div class="actions"><button class="btn" onclick="addStamp()">Add timestamp</button><button class="btn" onclick="act('revise', {notes: $('#notes').value})">Apply changes</button><button class="btn" onclick="revoice()" title="Record the narration again with the current voice settings, then re-time the animation">Re-record voice</button>
         <span style="flex:1"></span><button class="btn primary" onclick="act('export')">${j.status === "done" ? "Re-export" : "Export for YouTube"}</button></div></div>`;
     }
     if (j.youtube) body += `<div class="card"><h2>YouTube title, description & chapters</h2><textarea class="mono" id="yt" rows="12" readonly>${esc(j.youtube)}</textarea>
@@ -327,6 +327,7 @@ function renderJob() {
   const log = $("#log"); if (log && stick) log.scrollTop = log.scrollHeight;
 }
 
+async function revoice() { if (confirm("Record the narration again using your current voice settings (⚙), then re-time the animation?")) await act("revoice"); }
 async function saveNarration() { await act("narration", { text: $("#narr").value }); state.dirty = false; toast("Narration saved"); }
 async function approve() { if (state.dirty) await saveNarration(); await act("approve"); }
 async function del() { if (confirm("Delete this video and all its files?")) { await api(`/api/jobs/${state.job.id}/delete`, {}); go("new"); } }
@@ -369,6 +370,7 @@ async function refresh(force = false) {
   render(); refresh(true);
   setInterval(refresh, 2000);
 })();
+document.addEventListener("wheel", () => { const el = document.activeElement; if (el && el.type === "number") el.blur(); }, { passive: true });
 window.addEventListener("hashchange", () => { if (location.hash.startsWith("#job:") && location.hash.slice(1) !== state.view) go(location.hash.slice(1)); });
 </script>
 </body>

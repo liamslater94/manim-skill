@@ -233,6 +233,8 @@ def run_process(job_id: str, cmd: list[str], *, claude: bool) -> tuple[int, dict
     try:
         for line in proc.stdout:
             if not claude:
+                if "ConvertTokensToIds" in line or re.fullmatch(r"\s*-?\d+\.\d+\s*", line):
+                    continue  # harmless lexicon warnings from the voice engine
                 log(job_id, line)
                 continue
             try:
@@ -334,10 +336,17 @@ Then check it: extract frames at several points in every scene and look at them;
 clipped text, unreadable labels and anything mathematically wrong, re-render those scenes and re-mux.
 Finish when video.mp4 is complete and verified with ffprobe.
 """
+    if job.get("retime") and (job_dir(job["id"]) / "script.py").exists():
+        prompt = """The narration was re-recorded with the same wording: voiceover.mp3 and timestamps.json are new.
+Do NOT run tts-generate.py or edit narration.txt. Update script.py so every segment's duration matches the new
+timestamps.json (keep the visuals), lint it, re-render every scene, rewrite concat.txt if needed and re-mux
+video.mp4 with the new voiceover.mp3. Verify it with ffprobe and check a few frames. Do not launch the viewer.
+"""
     (job_dir(job["id"]) / "video.mp4").unlink(missing_ok=True)
     code, _ = run_process(job["id"], claude_cmd(prompt, job.get("session", "")), claude=True)
     if code or not (job_dir(job["id"]) / "video.mp4").exists():
         raise RuntimeError("Video step did not produce video.mp4")
+    update_job(job["id"], retime=False)
     update_job(job["id"], status="review")
 
 
@@ -485,7 +494,8 @@ def act(job_id: str, action: str, body: dict) -> dict:
                               queued_at=time.time())
         if action == "revoice":
             need("review", "done")
-            return update_job(job_id, status="queued_voice", queued_at=time.time())
+            log(job_id, "Re-recording the voice with the current settings.")
+            return update_job(job_id, status="queued_voice", retime=True, queued_at=time.time())
         if action == "revise":
             need("review", "done")
             if not body.get("notes", "").strip():
