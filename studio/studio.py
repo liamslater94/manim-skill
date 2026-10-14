@@ -325,7 +325,7 @@ def step_voice(job: dict) -> None:
 
 
 def step_video(job: dict) -> None:
-    prompt = skill_preamble(job) + f"""
+    prompt = skill_preamble(job) + """
 narration.txt has been approved and voiced: voiceover.mp3 and timestamps.json are in the current directory,
 and outline.md has the scene plan. Do NOT run tts-generate.py and do not edit narration.txt.
 Now do Phases 3–5 of the skill: write script.py timed to timestamps.json (each duration_s already includes
@@ -363,7 +363,7 @@ needed, re-mux video.mp4, and verify it with ffprobe. Do not launch the viewer.
 def step_export(job: dict) -> None:
     d = job_dir(job["id"])
     (d / "video_1080p.mp4").unlink(missing_ok=True)
-    prompt = f"""The teacher approved video.mp4. Make the final YouTube version:
+    prompt = """The teacher approved video.mp4. Make the final YouTube version:
 1. Render every scene in script.py at 1920x1080 and 30 fps (set config.pixel_width/pixel_height/frame_rate
    accordingly, keeping frame_width/frame_height and all timing unchanged), concatenate in the same order and
    mux with voiceover.mp3 into video_1080p.mp4. Check its duration matches video.mp4 within 0.5 s and look at
