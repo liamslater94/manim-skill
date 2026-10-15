@@ -51,6 +51,10 @@ DEFAULT_SETTINGS = {
     "audience": "IB Mathematics: Analysis and Approaches HL students",
     "minutes": 4,
     "voice_sample": "",
+    "logo": "",
+    "channel": "Mr. Liam IB Maths",
+    "badge": "IB Maths AA HL",
+    "accent": "#FFD23F",
     "say": "z=zed",
     "speed": 1.1,
     "pause": 1.0,
@@ -64,7 +68,7 @@ LIGHT = {"queued_script": "scripting"}
 HEAVY = {"queued_voice": "voicing", "queued_video": "rendering",
          "queued_revise": "revising", "queued_export": "exporting"}
 RUNNING = set(LIGHT.values()) | set(HEAVY.values())
-SERVED_FILES = {"video.mp4", "video_1080p.mp4", "voiceover.mp3", "question.png", "question.jpg",
+SERVED_FILES = {"video.mp4", "video_1080p.mp4", "voiceover.mp3", "thumbnail.png", "question.png", "question.jpg",
                 "question.jpeg", "question.webp", "question.gif"}
 
 LOCK = threading.RLock()
@@ -380,6 +384,11 @@ def step_export(job: dict) -> None:
 2. Write youtube.md with: a clear, searchable title (max 70 characters) on the first line, a blank line, then
    a 2–4 sentence description for students (what the question is, which methods are used, the level), then a
    line of 5–10 comma-separated tags. Do not write chapter timestamps — they are added automatically.
+3. Write thumbnail.json for the YouTube thumbnail, as {"headline": ..., "subline": ..., "frame_s": ...}:
+   - headline: the topic in 2–4 punchy words, e.g. "Shortest distance"; subline: 2–5 words completing it,
+     e.g. "between vector lines". Together they read as the video's title.
+   - frame_s: the time in seconds of the most visually striking frame — a colourful diagram, graph or 3D view
+     rather than a page of equations. Extract a few candidate frames and look at them before choosing.
 Do not change the narration or voice.
 """
     code, _ = run_process(job["id"], claude_cmd(prompt, job.get("session", "")), claude=True)
@@ -390,7 +399,43 @@ Do not change the narration or voice.
     if chapters:
         text += "\n\nChapters\n" + "\n".join(chapters)
     (d / "youtube.md").write_text(text + "\n")
+    try:
+        make_thumbnail(job["id"])
+    except Exception as e:  # noqa: BLE001 — a thumbnail problem must not fail the export
+        log(job["id"], f"Thumbnail not made: {e}")
     update_job(job["id"], status="done")
+
+
+def thumbnail_spec(job_id: str) -> dict:
+    d = job_dir(job_id)
+    spec = {"headline": read_job(job_id).get("title", "")[:60], "subline": "", "frame_s": None}
+    try:
+        spec.update(json.loads((d / "thumbnail.json").read_text()))
+    except (OSError, ValueError):
+        pass
+    return spec
+
+
+def make_thumbnail(job_id: str, **changes) -> Path:
+    """Render thumbnail.png from thumbnail.json (+ changes) and the branding in settings. Local and free."""
+    d = job_dir(job_id)
+    video = d / "video_1080p.mp4" if (d / "video_1080p.mp4").exists() else d / "video.mp4"
+    if not video.exists():
+        raise ValueError("Make the video first.")
+    spec = {**thumbnail_spec(job_id), **{k: v for k, v in changes.items() if v is not None}}
+    if spec.get("frame_s") in (None, ""):
+        out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+                              str(video)], capture_output=True, text=True).stdout
+        spec["frame_s"] = round(float(out or 0) * 0.4, 1)
+    spec["frame_s"] = float(spec["frame_s"])
+    (d / "thumbnail.json").write_text(json.dumps(spec, indent=2))
+    s = load_settings()
+    from thumbnail import render
+    render(video, d / "thumbnail.png", spec["headline"], spec.get("subline", ""), spec["frame_s"],
+           logo=s.get("logo") or None, channel=s.get("channel", ""), badge=s.get("badge", ""),
+           accent=s.get("accent") or "#FFD23F")
+    log(job_id, f"Thumbnail made: \"{spec['headline']}\" / \"{spec.get('subline', '')}\" at {spec['frame_s']:g}s.")
+    return d / "thumbnail.png"
 
 
 def chapter_lines(d: Path) -> list[str]:
@@ -520,6 +565,15 @@ def act(job_id: str, action: str, body: dict) -> dict:
                     proc.terminate()
             log(job_id, "Cancelled.")
             return read_job(job_id)
+        if action == "thumbnail":
+            need("review", "done")
+            frame = body.get("frame_s")
+            try:
+                make_thumbnail(job_id, headline=body.get("headline"), subline=body.get("subline"),
+                               frame_s=float(frame) if frame not in (None, "") else None)
+            except Exception as e:  # noqa: BLE001 — shown to the user
+                raise ValueError(f"Couldn't make the thumbnail: {e}") from e
+            return read_job(job_id)
         if action == "delete":
             if status in RUNNING:
                 raise ValueError("Cancel it first.")
@@ -532,9 +586,10 @@ def job_detail(job_id: str) -> dict:
     job = read_job(job_id)
     d = job_dir(job_id)
     read = lambda name: (d / name).read_text(errors="replace") if (d / name).exists() else ""  # noqa: E731
-    files = {name: int((d / name).stat().st_mtime) for name in SERVED_FILES if (d / name).exists()}
+    files = {name: (d / name).stat().st_mtime_ns for name in SERVED_FILES if (d / name).exists()}
     return {**job, "narration": read("narration.txt"), "outline": read("outline.md"),
-            "youtube": read("youtube.md"), "log": tail(d / "studio.log"), "files": files, "folder": str(d)}
+            "youtube": read("youtube.md"), "log": tail(d / "studio.log"), "files": files, "folder": str(d),
+            "thumbnail": thumbnail_spec(job_id)}
 
 
 def health() -> dict:
@@ -586,6 +641,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_json(job_detail(m.group(1)))
             elif path == "/api/settings":
                 self.send_json(load_settings())
+            elif path == "/api/logo":
+                logo = load_settings().get("logo")
+                if not logo or not Path(logo).exists():
+                    raise KeyError(path)
+                self.send_file(Path(logo))
             elif path == "/api/health":
                 self.send_json(health())
             elif m := re.match(r"^/files/([^/]+)/([^/]+)$", path):
@@ -610,6 +670,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_json(act(m.group(1), m.group(2), json.loads(self.read_body() or b"{}")))
             elif path == "/api/settings":
                 self.send_json(save_settings(json.loads(self.read_body() or b"{}")))
+            elif path == "/api/logo":
+                ext = Path(self.headers.get("X-Filename", "logo.png")).suffix.lower() or ".png"
+                if ext not in {".png", ".jpg", ".jpeg", ".webp"}:
+                    raise ValueError("Use a PNG (ideally with a transparent background), JPG or WebP image.")
+                STUDIO_DIR.mkdir(parents=True, exist_ok=True)
+                for old in STUDIO_DIR.glob("logo.*"):
+                    old.unlink()
+                dest = STUDIO_DIR / f"logo{ext}"
+                dest.write_bytes(self.read_body())
+                try:
+                    from PIL import Image
+                    Image.open(dest).verify()
+                except Exception:
+                    dest.unlink()
+                    raise ValueError("That file doesn't look like an image.")
+                self.send_json(save_settings({"logo": str(dest)}))
             elif path == "/api/voice":
                 name = Path(self.headers.get("X-Filename", "voice.m4a")).name
                 ext = Path(name).suffix.lower() or ".m4a"
