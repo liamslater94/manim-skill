@@ -340,6 +340,14 @@ function renderJob() {
           ${img ? `<a class="btn" href="${img}" download="${j.id}-thumbnail.png">Download thumbnail</a>` : ""}</div>
         <div class="hint">Free and instant: runs on your Mac, no Claude usage. Logo, badge and colour are in ⚙ Settings.</div></div>`;
     }
+    if (["review", "done"].includes(j.status)) {
+      const srt = v("subtitles.srt");
+      body += `<div class="card"><h2>Subtitles</h2>
+        <div class="sub">${srt ? "A caption track timed to the video, ready for YouTube." : "Made automatically when you export, or make them now."}</div>
+        <div class="actions">${srt ? `<a class="btn primary" href="${srt}" download="${j.id}-subtitles.srt">Download subtitles (.srt)</a>` : ""}
+          <button class="btn" onclick="act('subtitles').then(() => toast('Subtitles updated'))">${srt ? "Remake subtitles" : "Make subtitles"}</button></div>
+        <div class="hint">In YouTube Studio: open the video → <b>Subtitles</b> → <b>Add language</b> (English) → <b>Add</b> under Subtitles → <b>Upload file</b> → <b>With timing</b> → choose the .srt.</div></div>`;
+    }
     if (j.narration) body += `<details class="card"><summary>Narration</summary><pre style="margin-top:10px">${esc(j.narration)}</pre></details>`;
   }
   const logOpen = !!running || ["failed", "cancelled"].includes(j.status);

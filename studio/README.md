@@ -15,6 +15,9 @@ manim skill end to end:
    1280×720 **thumbnail**: Claude picks a punchy two-part title and the most striking frame, and
    the app adds your logo and a level badge. Edit the title or frame and regenerate it instantly
    on the video's page (local, no Claude usage). Upload your logo under ⚙ Settings → Thumbnail branding.
+   Export also writes **`subtitles.srt`**, a caption track timed to the video: long narration lines
+   are split into short two-line captions that clear during thinking pauses. Upload it in YouTube
+   Studio → Subtitles → Add language → Upload file → With timing.
 
 Paste several questions in a row: one script is written while another video renders, and each
 video waits for you at the two review points.
@@ -45,7 +48,7 @@ sent anywhere else, and the server only listens on this computer.
 
 Each video is a folder in `~/.manim-skill/<name>/`, the same layout the skill uses:
 `narration.txt`, `outline.md`, `voiceover.mp3`, `script.py`, `video.mp4`, `video_1080p.mp4`,
-`youtube.md`, `thumbnail.png`, plus `studio.log` (everything Claude and the tools did). Settings and your voice
+`youtube.md`, `thumbnail.png`, `subtitles.srt`, plus `studio.log` (everything Claude and the tools did). Settings and your voice
 sample are in `~/.manim-skill/studio/`. Set `MANIM_SKILL_HOME` to keep them elsewhere.
 
 ## Tips
@@ -58,7 +61,7 @@ sample are in `~/.manim-skill/studio/`. Set `MANIM_SKILL_HOME` to keep them else
 - If a step fails, the activity log says why. Fix the cause (e.g. a missing tool) and press
   *Retry*; finished steps are kept.
 
-## Thumbnails without the app
+## Thumbnails and subtitles without the app
 
 `studio/thumbnail.py` works on any video:
 
@@ -66,6 +69,8 @@ sample are in `~/.manim-skill/studio/`. Set `MANIM_SKILL_HOME` to keep them else
 .venv/bin/python studio/thumbnail.py video.mp4 thumbnail.png --headline "Shortest distance" \
     --subline "between vector lines" --frame 42 --logo logo.png --badge "IB Maths AA HL"
 ```
+
+`studio/subtitles.py ~/.manim-skill/<video>` writes `subtitles.srt` for any rendered skill session.
 
 The title font is [Anton](https://fonts.google.com/specimen/Anton) (SIL Open Font License, see
 `studio/fonts/OFL.txt`).

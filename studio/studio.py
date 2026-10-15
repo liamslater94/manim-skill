@@ -68,7 +68,7 @@ LIGHT = {"queued_script": "scripting"}
 HEAVY = {"queued_voice": "voicing", "queued_video": "rendering",
          "queued_revise": "revising", "queued_export": "exporting"}
 RUNNING = set(LIGHT.values()) | set(HEAVY.values())
-SERVED_FILES = {"video.mp4", "video_1080p.mp4", "voiceover.mp3", "thumbnail.png", "question.png", "question.jpg",
+SERVED_FILES = {"video.mp4", "video_1080p.mp4", "voiceover.mp3", "thumbnail.png", "subtitles.srt", "question.png", "question.jpg",
                 "question.jpeg", "question.webp", "question.gif"}
 
 LOCK = threading.RLock()
@@ -399,11 +399,20 @@ Do not change the narration or voice.
     if chapters:
         text += "\n\nChapters\n" + "\n".join(chapters)
     (d / "youtube.md").write_text(text + "\n")
-    try:
-        make_thumbnail(job["id"])
-    except Exception as e:  # noqa: BLE001 — a thumbnail problem must not fail the export
-        log(job["id"], f"Thumbnail not made: {e}")
+    for name, make in (("Thumbnail", make_thumbnail), ("Subtitles", make_subtitles)):
+        try:
+            make(job["id"])
+        except Exception as e:  # noqa: BLE001 — an extra must not fail the export
+            log(job["id"], f"{name} not made: {e}")
     update_job(job["id"], status="done")
+
+
+def make_subtitles(job_id: str) -> Path:
+    """subtitles.srt for YouTube, from the rendered scenes' caption timings. Local and free."""
+    from subtitles import write
+    out = write(job_dir(job_id))
+    log(job_id, f"Subtitles made: {out.read_text().count(' --> ')} captions.")
+    return out
 
 
 def thumbnail_spec(job_id: str) -> dict:
@@ -574,6 +583,13 @@ def act(job_id: str, action: str, body: dict) -> dict:
             except Exception as e:  # noqa: BLE001 — shown to the user
                 raise ValueError(f"Couldn't make the thumbnail: {e}") from e
             return read_job(job_id)
+        if action == "subtitles":
+            need("review", "done")
+            try:
+                make_subtitles(job_id)
+            except Exception as e:  # noqa: BLE001 — shown to the user
+                raise ValueError(f"Couldn't make subtitles: {e}") from e
+            return read_job(job_id)
         if action == "delete":
             if status in RUNNING:
                 raise ValueError("Cancel it first.")
@@ -706,7 +722,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def send_file(self, path: Path):
         size = path.stat().st_size
-        ctype = {".mp4": "video/mp4", ".mp3": "audio/mpeg", ".png": "image/png", ".jpg": "image/jpeg",
+        ctype = {".mp4": "video/mp4", ".mp3": "audio/mpeg", ".srt": "text/plain; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg",
                  ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}.get(path.suffix, "application/octet-stream")
         start, end = 0, size - 1
         if (rng := self.headers.get("Range")) and (m := re.match(r"bytes=(\d+)-(\d*)", rng)):
