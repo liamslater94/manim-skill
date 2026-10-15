@@ -258,6 +258,14 @@ function renderSettings() {
       <div class="hint">The first line of every new script, spoken over your logo. Leave empty for no greeting.</div>
     </div>
     <div class="card">
+      <h2>End screen</h2>
+      <div class="sub">Added when you export: your logo and "Thanks for watching" at the top, the rest left clear for YouTube's end screen elements (videos, playlist, subscribe).</div>
+      <div class="row">
+        <div style="max-width:200px"><label for="endsec">Length (s)</label><input type="number" id="endsec" step="1" min="0" max="20" value="${s.endscreen_seconds ?? 20}"><div class="hint">YouTube allows 5–20 s. 0 turns it off.</div></div>
+        <div><label for="signoff">Spoken sign-off</label><input type="text" id="signoff" value="${esc(s.signoff || "")}" placeholder="e.g. Thanks for watching! Pick one of these videos to keep learning."><div class="hint">Said in your voice over the end screen. Leave empty for silence.</div></div>
+      </div>
+    </div>
+    <div class="card">
       <h2>Defaults for new videos</h2>
       <div class="row">
         <div><label for="saud">Audience</label><input type="text" id="saud" value="${esc(s.audience)}"></div>
@@ -284,7 +292,7 @@ function renderSettings() {
   };
   $("#save").onclick = async () => {
     try { state.settings = await api("/api/settings", { say: $("#say").value, speed: +$("#speed").value, pause: +$("#pause").value,
-      guidance: +$("#guid").value, channel: $("#chan").value, badge: $("#badge").value, greeting: $("#greet").value, natural_pauses: $("#natural").checked, accent: $("#accent").value, audience: $("#saud").value, minutes: +$("#smin").value, claude: $("#claude").value, model: $("#model").value });
+      guidance: +$("#guid").value, channel: $("#chan").value, badge: $("#badge").value, greeting: $("#greet").value, endscreen_seconds: Math.min(20, +$("#endsec").value || 0), signoff: $("#signoff").value, natural_pauses: $("#natural").checked, accent: $("#accent").value, audience: $("#saud").value, minutes: +$("#smin").value, claude: $("#claude").value, model: $("#model").value });
       toast("Settings saved"); } catch (e) { toast(e.message); }
   };
 }
@@ -352,7 +360,8 @@ function renderJob() {
         <div class="sub">${srt ? "A caption track timed to the video, ready for YouTube." : "Made automatically when you export, or make them now."}</div>
         <div class="actions">${srt ? `<a class="btn primary" href="${srt}" download="${j.id}-subtitles.srt">Download subtitles (.srt)</a>` : ""}
           <button class="btn" onclick="act('subtitles').then(() => toast('Subtitles updated'))">${srt ? "Remake subtitles" : "Make subtitles"}</button></div>
-        <div class="hint">In YouTube Studio: open the video → <b>Subtitles</b> → <b>Add language</b> (English) → <b>Add</b> under Subtitles → <b>Upload file</b> → <b>With timing</b> → choose the .srt.</div></div>`;
+        <div class="hint">In YouTube Studio: open the video → <b>Subtitles</b> → <b>Add language</b> (English) → <b>Add</b> under Subtitles → <b>Upload file</b> → <b>With timing</b> → choose the .srt.</div>
+        ${j.endscreen_start != null ? `<div class="hint">End screen: in YouTube Studio open the video → <b>Editor</b> → <b>End screen</b> → add your videos, playlist or subscribe button. They fit the last ${j.endscreen_seconds || 20} seconds, below your logo.</div>` : ""}</div>`;
     }
     if (j.narration) body += `<details class="card"><summary>Narration</summary><pre style="margin-top:10px">${esc(j.narration)}</pre></details>`;
   }

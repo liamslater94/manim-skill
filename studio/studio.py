@@ -58,6 +58,8 @@ DEFAULT_SETTINGS = {
     "say": "z=zed",
     "natural_pauses": True,
     "greeting": "Hello, and welcome to Mr. Liam IB Maths!",
+    "endscreen_seconds": 20.0,
+    "signoff": "Thanks for watching! Pick one of these videos to keep learning.",
     "speed": 1.1,
     "pause": 1.0,
     "guidance": 1.5,
@@ -95,7 +97,7 @@ def save_settings(values: dict) -> dict:
             elif isinstance(default, str):
                 current[key] = str(value)
             else:
-                current[key] = type(default)(value)
+                current[key] = max(0, type(default)(value or 0))
     STUDIO_DIR.mkdir(parents=True, exist_ok=True)
     SETTINGS_FILE.write_text(json.dumps(current, indent=2))
     return current
@@ -278,9 +280,11 @@ def skill_preamble(job: dict) -> str:
     )
 
 
-def voice_command() -> list[str]:
+def voice_command(narration: str = "narration.txt", out_audio: str = "voiceover.mp3",
+                  out_timestamps: str = "timestamps.json") -> list[str]:
     s = load_settings()
-    cmd = [sys.executable, str(TOOLS_DIR / "tts-generate.py"), "--narration", "narration.txt",
+    cmd = [sys.executable, str(TOOLS_DIR / "tts-generate.py"), "--narration", narration,
+           "--out-audio", out_audio, "--out-timestamps", out_timestamps,
            "--pause", f"{s['pause']:g}"] + (["--natural-pauses"] if s.get("natural_pauses") else [])
     sample = s.get("voice_sample")
     if sample and Path(sample).exists():
@@ -321,7 +325,7 @@ Write narration.txt for a video of about {job['minutes']:g} minutes, in the skil
   ("Now look.", "So,", "Here's the key idea:"). A line may end with a comma when the thought continues on
   the next line.
 - Keep lines to one or two sentences each.
-
+{{endscreen}}
 Also write outline.md: the scene-by-scene plan (Scene class names and what appears on screen, matching the
 narration lines) followed by a complete worked solution, so the teacher can check the mathematics.
 
@@ -329,6 +333,9 @@ Do not generate audio, write animation code or render. Stop once narration.txt a
 """
         session = ""
         greeting = load_settings().get("greeting", "").strip()
+        prompt = prompt.replace("{endscreen}", (
+            "- End with the summary. Don't invite viewers to watch other videos or subscribe: the app adds an "
+            "end screen with a spoken sign-off.\n") if load_settings().get("endscreen_seconds", 0) > 0 else "")
         prompt = prompt.replace("{greeting}", (
             f"- The first line must be exactly: {greeting}\n  (It plays over the channel logo.) Start the "
             "explanation on the second line.\n") if greeting else "")
@@ -345,6 +352,10 @@ def step_voice(job: dict) -> None:
     if code or not (job_dir(job["id"]) / "timestamps.json").exists():
         raise RuntimeError("Voice step failed (see log)")
     update_job(job["id"], status="queued_video")
+
+
+ENDCARD_RULE = ("\nEnding: finish on the summary. Do not draw end cards, 'more videos' boxes, subscribe buttons or "
+                "placeholder thumbnails; the app appends a clean end screen for YouTube's end screen elements.\n")
 
 
 def opening_instructions() -> str:
@@ -372,7 +383,7 @@ that line's pause), lint it, render every scene, write concat.txt, and mux video
 Then check it: extract frames at several points in every scene and look at them; fix overlapping or
 clipped text, unreadable labels and anything mathematically wrong, re-render those scenes and re-mux.
 Finish when video.mp4 is complete and verified with ffprobe.
-""" + opening_instructions()
+""" + opening_instructions() + ENDCARD_RULE
     if job.get("retime") and (job_dir(job["id"]) / "script.py").exists():
         prompt = """The narration was re-recorded with the same wording: voiceover.mp3 and timestamps.json are new.
 Do NOT run tts-generate.py or edit narration.txt. Update script.py so every segment's duration matches the new
@@ -404,7 +415,7 @@ Apply it, following the skill's Phase 6 iteration rules: for a referenced moment
 look at it before changing code. If narration must change, edit narration.txt, then regenerate the voice
 with exactly this command (unchanged lines are cached):
 {voice}
-and update script.py to the new timestamps.json. Re-render only the affected scenes, update concat.txt if
+and update script.py to the new timestamps.json. {ENDCARD_RULE.strip()} Re-render only the affected scenes, update concat.txt if
 needed, re-mux video.mp4, and verify it with ffprobe. Do not launch the viewer.
 """
     code, _ = run_process(job["id"], claude_cmd(prompt, job.get("session", "")), claude=True)
@@ -434,6 +445,10 @@ Do not change the narration or voice.
     code, _ = run_process(job["id"], claude_cmd(prompt, job.get("session", "")), claude=True)
     if code or not (d / "video_1080p.mp4").exists():
         raise RuntimeError("Export did not produce video_1080p.mp4")
+    if load_settings().get("endscreen_seconds", 0) > 0:
+        add_endscreen(job["id"])
+    else:
+        update_job(job["id"], endscreen_start=None, endscreen_signoff="")
     chapters = chapter_lines(d)
     text = (d / "youtube.md").read_text().rstrip() if (d / "youtube.md").exists() else job["title"]
     if chapters:
@@ -447,10 +462,39 @@ Do not change the narration or voice.
     update_job(job["id"], status="done")
 
 
+def add_endscreen(job_id: str) -> None:
+    """Append a clean end screen (with the spoken sign-off) to video_1080p.mp4, leaving room for
+    YouTube's end screen elements. The un-extended export is kept as video_1080p_main.mp4."""
+    from endscreen import append
+    d, s = job_dir(job_id), load_settings()
+    (d / "video_1080p.mp4").replace(d / "video_1080p_main.mp4")
+    voice = None
+    signoff = s.get("signoff", "").strip()
+    if signoff:
+        (d / "endscreen-narration.txt").write_text(f"subtitles:\n- {signoff}\n")
+        code, _ = run_process(job_id, voice_command("endscreen-narration.txt", "endscreen-voice.mp3",
+                                                    "endscreen-timestamps.json"), claude=False)
+        voice = d / "endscreen-voice.mp3" if code == 0 and (d / "endscreen-voice.mp3").exists() else None
+    log(job_id, f"Adding a {s['endscreen_seconds']:g}s end screen…")
+    start = append(d / "video_1080p_main.mp4", d / "video_1080p.mp4", float(s["endscreen_seconds"]),
+                   logo=s.get("logo") or None, channel=s.get("channel", ""), voice=voice)
+    update_job(job_id, endscreen_start=round(start, 3), endscreen_seconds=float(s["endscreen_seconds"]),
+               endscreen_signoff=signoff if voice else "")
+    log(job_id, f"End screen added from {start:.1f}s: add YouTube end screen elements there.")
+
+
 def make_subtitles(job_id: str) -> Path:
     """subtitles.srt for YouTube, from the rendered scenes' caption timings. Local and free."""
-    from subtitles import write
-    out = write(job_dir(job_id))
+    from subtitles import srt_time, two_lines, write
+    d = job_dir(job_id)
+    out = write(d)
+    job = read_job(job_id)
+    if job.get("endscreen_signoff") and (d / "endscreen-timestamps.json").exists():
+        speech = json.loads((d / "endscreen-timestamps.json").read_text())["subtitles"][0]
+        a = job["endscreen_start"] + 0.4
+        n = out.read_text().count(" --> ") + 1
+        out.write_text(out.read_text().rstrip() + f"\n\n{n}\n{srt_time(a)} --> "
+                       f"{srt_time(a + speech['duration_s'] - speech.get('pause_s', 0))}\n{two_lines(job['endscreen_signoff'])}\n")
     log(job_id, f"Subtitles made: {out.read_text().count(' --> ')} captions.")
     return out
 

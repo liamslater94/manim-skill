@@ -18,6 +18,11 @@ manim skill end to end:
    Export also writes **`subtitles.srt`**, a caption track timed to the video: long narration lines
    are split into short two-line captions that clear during thinking pauses. Upload it in YouTube
    Studio → Subtitles → Add language → Upload file → With timing.
+   Finally a clean 20-second **end screen** is appended: your logo and "Thanks for watching" at
+   the top, your cloned voice saying a short sign-off, and the rest of the frame left empty for
+   YouTube's end screen elements (YouTube Studio → Editor → End screen). Claude is told never to
+   draw its own end cards or "more videos" boxes. Change the length or sign-off, or turn it off
+   (length 0), under ⚙ Settings → End screen.
 
 Paste several questions in a row: one script is written while another video renders, and each
 video waits for you at the two review points.
@@ -53,7 +58,7 @@ sent anywhere else, and the server only listens on this computer.
 ## Where things go
 
 Each video is a folder in `~/.manim-skill/<name>/`, the same layout the skill uses:
-`narration.txt`, `outline.md`, `voiceover.mp3`, `script.py`, `video.mp4`, `video_1080p.mp4`,
+`narration.txt`, `outline.md`, `voiceover.mp3`, `script.py`, `video.mp4`, `video_1080p.mp4` (`video_1080p_main.mp4` is the same without the end screen),
 `youtube.md`, `thumbnail.png`, `subtitles.srt`, plus `studio.log` (everything Claude and the tools did). Settings and your voice
 sample are in `~/.manim-skill/studio/`. Set `MANIM_SKILL_HOME` to keep them elsewhere.
 
@@ -77,6 +82,9 @@ sample are in `~/.manim-skill/studio/`. Set `MANIM_SKILL_HOME` to keep them else
 ```
 
 `studio/subtitles.py ~/.manim-skill/<video>` writes `subtitles.srt` for any rendered skill session.
+
+`studio/endscreen.py video.mp4 video_end.mp4 --seconds 20 --logo logo.png --voice signoff.mp3`
+appends the end screen to any video.
 
 The title font is [Anton](https://fonts.google.com/specimen/Anton) (SIL Open Font License, see
 `studio/fonts/OFL.txt`).
