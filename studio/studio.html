@@ -235,12 +235,16 @@ function renderSettings() {
       <div class="row">
         <div><label for="say">Pronunciations</label><input type="text" id="say" value="${esc(s.say)}"><div class="hint">e.g. <code>z=zed</code>. Comma-separated <code>word=spoken</code> pairs.</div></div>
         <div><label for="speed">Speaking speed</label><input type="number" id="speed" step="0.05" min="0.7" max="1.5" value="${s.speed}"></div>
-        <div><label for="pause">Pause after each line (s)</label><input type="number" id="pause" step="0.25" min="0" max="5" value="${s.pause}"></div>
+        <div><label for="pause">Pause after each line (s)</label><input type="number" id="pause" step="0.25" min="0" max="5" value="${s.pause}"><div class="hint">Used only when natural pauses are off.</div></div>
         <div><label for="guid">Expressiveness</label><input type="number" id="guid" step="0.1" min="0.5" max="3" value="${s.guidance}"><div class="hint">Higher = livelier, lower = steadier (default 1.5).</div></div>
       </div>
+      <label style="display:flex;gap:10px;align-items:flex-start;font-weight:500;color:var(--text-primary);margin-top:14px">
+        <input type="checkbox" id="natural" ${s.natural_pauses ? "checked" : ""} style="margin-top:3px">
+        <span>Natural pauses<span class="hint" style="display:block;margin-top:2px">Each pause fits how the line ends (short when the thought carries on, longer after a question or a worked step), with soft room tone instead of dead silence.</span></span></label>
     </div>
     <div class="card">
-      <h2>Thumbnail branding</h2>
+      <h2>Channel branding</h2>
+      <div class="sub">Your logo opens every video while the greeting plays, and appears on thumbnails.</div>
       <div class="actions"><input type="file" id="logo" accept="image/png,image/jpeg,image/webp" hidden>
         ${s.logo ? `<img src="/api/logo?v=${Date.now()}" alt="Your logo" style="height:56px;max-width:220px;object-fit:contain;background:#0b0f14;border-radius:8px;padding:6px">` : ""}
         <button class="btn" onclick="$('#logo').click()">${s.logo ? "Replace logo" : "Upload logo"}</button>
@@ -248,8 +252,10 @@ function renderSettings() {
       <div class="row">
         <div><label for="chan">Channel name</label><input type="text" id="chan" value="${esc(s.channel)}"><div class="hint">Shown instead of the logo if no logo is uploaded.</div></div>
         <div><label for="badge">Badge</label><input type="text" id="badge" value="${esc(s.badge)}"><div class="hint">Small label at the bottom; leave empty for none.</div></div>
-        <div style="max-width:160px"><label for="accent">Accent colour</label><input type="color" id="accent" value="${esc(s.accent || "#FFD23F")}" style="height:40px;padding:4px"></div>
+        <div style="max-width:160px"><label for="accent">Thumbnail accent</label><input type="color" id="accent" value="${esc(s.accent || "#FFD23F")}" style="height:40px;padding:4px"></div>
       </div>
+      <label for="greet">Opening greeting</label><input type="text" id="greet" value="${esc(s.greeting || "")}" placeholder="e.g. Hello, and welcome to Mr. Liam IB Maths!">
+      <div class="hint">The first line of every new script, spoken over your logo. Leave empty for no greeting.</div>
     </div>
     <div class="card">
       <h2>Defaults for new videos</h2>
@@ -278,7 +284,7 @@ function renderSettings() {
   };
   $("#save").onclick = async () => {
     try { state.settings = await api("/api/settings", { say: $("#say").value, speed: +$("#speed").value, pause: +$("#pause").value,
-      guidance: +$("#guid").value, channel: $("#chan").value, badge: $("#badge").value, accent: $("#accent").value, audience: $("#saud").value, minutes: +$("#smin").value, claude: $("#claude").value, model: $("#model").value });
+      guidance: +$("#guid").value, channel: $("#chan").value, badge: $("#badge").value, greeting: $("#greet").value, natural_pauses: $("#natural").checked, accent: $("#accent").value, audience: $("#saud").value, minutes: +$("#smin").value, claude: $("#claude").value, model: $("#model").value });
       toast("Settings saved"); } catch (e) { toast(e.message); }
   };
 }

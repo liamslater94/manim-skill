@@ -56,6 +56,8 @@ DEFAULT_SETTINGS = {
     "badge": "IB Maths AA HL",
     "accent": "#FFD23F",
     "say": "z=zed",
+    "natural_pauses": True,
+    "greeting": "Hello, and welcome to Mr. Liam IB Maths!",
     "speed": 1.1,
     "pause": 1.0,
     "guidance": 1.5,
@@ -87,7 +89,13 @@ def save_settings(values: dict) -> dict:
     current = load_settings()
     for key, default in DEFAULT_SETTINGS.items():
         if key in values:
-            current[key] = type(default)(values[key]) if not isinstance(default, str) else str(values[key])
+            value = values[key]
+            if isinstance(default, bool):
+                current[key] = value is True or str(value).lower() in ("true", "1", "on", "yes")
+            elif isinstance(default, str):
+                current[key] = str(value)
+            else:
+                current[key] = type(default)(value)
     STUDIO_DIR.mkdir(parents=True, exist_ok=True)
     SETTINGS_FILE.write_text(json.dumps(current, indent=2))
     return current
@@ -273,7 +281,7 @@ def skill_preamble(job: dict) -> str:
 def voice_command() -> list[str]:
     s = load_settings()
     cmd = [sys.executable, str(TOOLS_DIR / "tts-generate.py"), "--narration", "narration.txt",
-           "--pause", f"{s['pause']:g}"]
+           "--pause", f"{s['pause']:g}"] + (["--natural-pauses"] if s.get("natural_pauses") else [])
     sample = s.get("voice_sample")
     if sample and Path(sample).exists():
         cmd += ["--clone", sample, "--qa", "--speed", f"{s['speed']:g}", "--clone-guidance", f"{s['guidance']:g}"]
@@ -301,12 +309,17 @@ This step is Phase 1 (Narration) only. The question or topic is in question.md:
 </question>
 {image}
 Write narration.txt for a video of about {job['minutes']:g} minutes, in the skill's SubtitleSpec format:
-- Teach it the way an excellent teacher would at this level: motivate, explain each step, connect to the
+{{greeting}}- Teach it the way an excellent teacher would at this level: motivate, explain each step, connect to the
   geometry or intuition, and finish with a short summary. Be mathematically exact.
-- End a line with [pause 2.5] after every worked step or key result so viewers can take it in; the
-  narrator adds a 1 s breath after other lines automatically.
+- End a line with [pause 2] after every worked step or key result so viewers can take it in; other pauses
+  are timed automatically from how each line ends.
 - The narration is read by a cloned human voice: write maths as it should be spoken
   ("x squared", "a minus nine", "the integral from zero to one of …"), never symbols or LaTeX.
+- Write it the way you would say it, and punctuate for breathing, because the voice pauses where the
+  punctuation does: commas between items and clauses, a colon before a result ("That gives: zero, minus
+  four…"), full stops to end ideas. Prefer short sentences, contractions, and conversational signposts
+  ("Now look.", "So,", "Here's the key idea:"). A line may end with a comma when the thought continues on
+  the next line.
 - Keep lines to one or two sentences each.
 
 Also write outline.md: the scene-by-scene plan (Scene class names and what appears on screen, matching the
@@ -315,6 +328,10 @@ narration lines) followed by a complete worked solution, so the teacher can chec
 Do not generate audio, write animation code or render. Stop once narration.txt and outline.md are written.
 """
         session = ""
+        greeting = load_settings().get("greeting", "").strip()
+        prompt = prompt.replace("{greeting}", (
+            f"- The first line must be exactly: {greeting}\n  (It plays over the channel logo.) Start the "
+            "explanation on the second line.\n") if greeting else "")
     code, _ = run_process(job["id"], claude_cmd(prompt, session), claude=True)
     if code or not (job_dir(job["id"]) / "narration.txt").exists():
         raise RuntimeError("Script step did not produce narration.txt")
@@ -330,6 +347,22 @@ def step_voice(job: dict) -> None:
     update_job(job["id"], status="queued_video")
 
 
+def opening_instructions() -> str:
+    """How the first scene presents the channel: the logo (copied into the session) during the greeting."""
+    s = load_settings()
+    greeting = s.get("greeting", "").strip()
+    if not greeting:
+        return ""
+    return (
+        "\nOpening: the first narration line is the channel greeting. For that whole line, show the channel "
+        "logo in Scene 1 — channel-logo.png in the current directory (ImageMobject), centred, about a third of "
+        "the frame width, fading or growing in at the start and clearly visible throughout the greeting; then "
+        "shrink it to a small corner badge or fade it out as the topic begins. Keep it unobstructed and "
+        "undistorted.\n" if (s.get("logo") and Path(s["logo"]).exists()) else
+        f"\nOpening: the first narration line is the channel greeting. While it plays, show the channel name "
+        f"\"{s.get('channel', '')}\" as a large, clean title card in Scene 1, then move into the topic.\n")
+
+
 def step_video(job: dict) -> None:
     prompt = skill_preamble(job) + """
 narration.txt has been approved and voiced: voiceover.mp3 and timestamps.json are in the current directory,
@@ -339,13 +372,20 @@ that line's pause), lint it, render every scene, write concat.txt, and mux video
 Then check it: extract frames at several points in every scene and look at them; fix overlapping or
 clipped text, unreadable labels and anything mathematically wrong, re-render those scenes and re-mux.
 Finish when video.mp4 is complete and verified with ffprobe.
-"""
+""" + opening_instructions()
     if job.get("retime") and (job_dir(job["id"]) / "script.py").exists():
         prompt = """The narration was re-recorded with the same wording: voiceover.mp3 and timestamps.json are new.
 Do NOT run tts-generate.py or edit narration.txt. Update script.py so every segment's duration matches the new
 timestamps.json (keep the visuals), lint it, re-render every scene, rewrite concat.txt if needed and re-mux
 video.mp4 with the new voiceover.mp3. Verify it with ffprobe and check a few frames. Do not launch the viewer.
 """
+    logo = load_settings().get("logo")
+    if logo and Path(logo).exists():
+        try:   # Manim reads PNG best; normalise whatever was uploaded
+            from PIL import Image
+            Image.open(logo).convert("RGBA").save(job_dir(job["id"]) / "channel-logo.png")
+        except Exception as e:  # noqa: BLE001
+            log(job["id"], f"Couldn't prepare the logo: {e}")
     (job_dir(job["id"]) / "video.mp4").unlink(missing_ok=True)
     code, _ = run_process(job["id"], claude_cmd(prompt, job.get("session", "")), claude=True)
     if code or not (job_dir(job["id"]) / "video.mp4").exists():
