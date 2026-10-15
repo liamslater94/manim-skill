@@ -9,4 +9,5 @@ dependencies = [
     "kokoro>=0.9.4",
     "soundfile",
     "sherpa-onnx>=1.13",
+    "sherpa-onnx-core>=1.13",
 ]

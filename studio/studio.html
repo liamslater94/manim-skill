@@ -240,6 +240,18 @@ function renderSettings() {
       </div>
     </div>
     <div class="card">
+      <h2>Thumbnail branding</h2>
+      <div class="actions"><input type="file" id="logo" accept="image/png,image/jpeg,image/webp" hidden>
+        ${s.logo ? `<img src="/api/logo?v=${Date.now()}" alt="Your logo" style="height:56px;max-width:220px;object-fit:contain;background:#0b0f14;border-radius:8px;padding:6px">` : ""}
+        <button class="btn" onclick="$('#logo').click()">${s.logo ? "Replace logo" : "Upload logo"}</button>
+        <span class="muted">${s.logo ? "" : "PNG with a transparent background works best"}</span></div>
+      <div class="row">
+        <div><label for="chan">Channel name</label><input type="text" id="chan" value="${esc(s.channel)}"><div class="hint">Shown instead of the logo if no logo is uploaded.</div></div>
+        <div><label for="badge">Badge</label><input type="text" id="badge" value="${esc(s.badge)}"><div class="hint">Small label at the bottom; leave empty for none.</div></div>
+        <div style="max-width:160px"><label for="accent">Accent colour</label><input type="color" id="accent" value="${esc(s.accent || "#FFD23F")}" style="height:40px;padding:4px"></div>
+      </div>
+    </div>
+    <div class="card">
       <h2>Defaults for new videos</h2>
       <div class="row">
         <div><label for="saud">Audience</label><input type="text" id="saud" value="${esc(s.audience)}"></div>
@@ -252,6 +264,12 @@ function renderSettings() {
       <div class="actions"><button class="btn primary" id="save">Save settings</button></div>
     </div>
     ${healthCard()}`;
+  $("#logo").onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    try { const r = await fetch("/api/logo", { method: "POST", headers: { "X-Filename": f.name }, body: f });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error); state.settings = d; toast("Logo saved"); renderSettings();
+    } catch (err) { toast(err.message); }
+  };
   $("#voice").onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
     try { const r = await fetch("/api/voice", { method: "POST", headers: { "X-Filename": f.name }, body: f });
@@ -260,7 +278,7 @@ function renderSettings() {
   };
   $("#save").onclick = async () => {
     try { state.settings = await api("/api/settings", { say: $("#say").value, speed: +$("#speed").value, pause: +$("#pause").value,
-      guidance: +$("#guid").value, audience: $("#saud").value, minutes: +$("#smin").value, claude: $("#claude").value, model: $("#model").value });
+      guidance: +$("#guid").value, channel: $("#chan").value, badge: $("#badge").value, accent: $("#accent").value, audience: $("#saud").value, minutes: +$("#smin").value, claude: $("#claude").value, model: $("#model").value });
       toast("Settings saved"); } catch (e) { toast(e.message); }
   };
 }
@@ -303,15 +321,38 @@ function renderJob() {
       ${final ? `<div class="actions"><a class="btn primary" href="${v("video_1080p.mp4")}" download="${j.id}.mp4">Download 1080p MP4</a></div>` : ""}</div>`;
     if (["review", "done"].includes(j.status)) {
       body += `<div class="card"><h2>Changes</h2><textarea id="notes" rows="4" placeholder="e.g. [0:42] the label overlaps the plane: move it up. [1:30] say this step more slowly."></textarea>
-        <div class="actions"><button class="btn" onclick="addStamp()">Add timestamp</button><button class="btn" onclick="act('revise', {notes: $('#notes').value})">Apply changes</button>
+        <div class="actions"><button class="btn" onclick="addStamp()">Add timestamp</button><button class="btn" onclick="act('revise', {notes: $('#notes').value})">Apply changes</button><button class="btn" onclick="revoice()" title="Record the narration again with the current voice settings, then re-time the animation">Re-record voice</button>
         <span style="flex:1"></span><button class="btn primary" onclick="act('export')">${j.status === "done" ? "Re-export" : "Export for YouTube"}</button></div></div>`;
     }
     if (j.youtube) body += `<div class="card"><h2>YouTube title, description & chapters</h2><textarea class="mono" id="yt" rows="12" readonly>${esc(j.youtube)}</textarea>
       <div class="actions"><button class="btn" onclick="navigator.clipboard.writeText($('#yt').value).then(() => toast('Copied'))">Copy</button></div></div>`;
+    if (["review", "done"].includes(j.status)) {
+      const t = j.thumbnail || {}, img = v("thumbnail.png");
+      body += `<div class="card"><h2>Thumbnail</h2>
+        ${img ? `<img src="${img}" alt="YouTube thumbnail" style="width:100%;max-width:640px;border-radius:10px;display:block;border:1px solid var(--border)">` : `<div class="muted">Made automatically when you export, or make one now.</div>`}
+        <div class="row">
+          <div><label for="th-h">Big title</label><input type="text" id="th-h" value="${esc(t.headline || "")}" placeholder="e.g. Shortest distance"></div>
+          <div><label for="th-s">Second line</label><input type="text" id="th-s" value="${esc(t.subline || "")}" placeholder="e.g. between vector lines"></div>
+          <div style="max-width:200px"><label for="th-f">Background frame (s)</label><input type="number" id="th-f" step="0.5" min="0" value="${t.frame_s ?? ""}" placeholder="auto"></div>
+        </div>
+        <div class="actions"><button class="btn" onclick="useFrame()" title="Use the moment the video above is paused at">Use current video frame</button>
+          <button class="btn primary" onclick="makeThumb()">${img ? "Update thumbnail" : "Make thumbnail"}</button>
+          ${img ? `<a class="btn" href="${img}" download="${j.id}-thumbnail.png">Download thumbnail</a>` : ""}</div>
+        <div class="hint">Free and instant: runs on your Mac, no Claude usage. Logo, badge and colour are in ⚙ Settings.</div></div>`;
+    }
+    if (["review", "done"].includes(j.status)) {
+      const srt = v("subtitles.srt");
+      body += `<div class="card"><h2>Subtitles</h2>
+        <div class="sub">${srt ? "A caption track timed to the video, ready for YouTube." : "Made automatically when you export, or make them now."}</div>
+        <div class="actions">${srt ? `<a class="btn primary" href="${srt}" download="${j.id}-subtitles.srt">Download subtitles (.srt)</a>` : ""}
+          <button class="btn" onclick="act('subtitles').then(() => toast('Subtitles updated'))">${srt ? "Remake subtitles" : "Make subtitles"}</button></div>
+        <div class="hint">In YouTube Studio: open the video → <b>Subtitles</b> → <b>Add language</b> (English) → <b>Add</b> under Subtitles → <b>Upload file</b> → <b>With timing</b> → choose the .srt.</div></div>`;
+    }
     if (j.narration) body += `<details class="card"><summary>Narration</summary><pre style="margin-top:10px">${esc(j.narration)}</pre></details>`;
   }
   const logOpen = !!running || ["failed", "cancelled"].includes(j.status);
   const prev = $("#log"); const stick = !prev || prev.scrollHeight - prev.scrollTop - prev.clientHeight < 30;
+  const thumbKeep = ["th-h", "th-s", "th-f"].map(id => [id, $("#" + id)?.value, document.activeElement?.id === id]);
   const keep = { notes: $("#notes")?.value, narr: document.activeElement?.id === "narr" || state.dirty ? $("#narr")?.value : null, t: $("#player")?.currentTime, paused: $("#player")?.paused ?? true, src: $("#player")?.getAttribute("src") };
   $("#view").innerHTML = `
     <div class="row" style="align-items:flex-start"><div style="flex:3"><h1>${esc(j.title)}</h1><div class="sub">${pill(j.status)} &nbsp;${esc(j.folder)}</div></div>
@@ -320,6 +361,8 @@ function renderJob() {
     <details class="card" id="logbox" ${logOpen || state.logOpen ? "open" : ""}><summary>Activity log</summary><pre class="log" id="log" style="margin-top:10px">${esc(j.log || "")}</pre></details>`;
   $("#logbox").ontoggle = (e) => state.logOpen = e.target.open;
   if (keep.notes && $("#notes")) $("#notes").value = keep.notes;
+  for (const [id, val, focused] of thumbKeep) if (val != null && $("#" + id) && (focused || state.thumbDirty)) $("#" + id).value = val;
+  ["th-h", "th-s", "th-f"].forEach(id => { const el = $("#" + id); if (el) el.oninput = () => state.thumbDirty = true; });
   if (keep.narr != null && $("#narr")) { $("#narr").value = keep.narr; }
   if ($("#narr")) $("#narr").oninput = () => state.dirty = true;
   const p = $("#player");
@@ -327,6 +370,13 @@ function renderJob() {
   const log = $("#log"); if (log && stick) log.scrollTop = log.scrollHeight;
 }
 
+async function revoice() { if (confirm("Record the narration again using your current voice settings (⚙), then re-time the animation?")) await act("revoice"); }
+function useFrame() { const p = $("#player"); if (p) { $("#th-f").value = p.currentTime.toFixed(1); state.thumbDirty = true; } }
+async function makeThumb() {
+  const btn = event?.target; if (btn) btn.disabled = true;
+  await act("thumbnail", { headline: $("#th-h").value, subline: $("#th-s").value, frame_s: $("#th-f").value });
+  state.thumbDirty = false; toast("Thumbnail updated");
+}
 async function saveNarration() { await act("narration", { text: $("#narr").value }); state.dirty = false; toast("Narration saved"); }
 async function approve() { if (state.dirty) await saveNarration(); await act("approve"); }
 async function del() { if (confirm("Delete this video and all its files?")) { await api(`/api/jobs/${state.job.id}/delete`, {}); go("new"); } }
@@ -355,7 +405,7 @@ async function refresh(force = false) {
       if (force || sig !== lastSig || !state.job) {
         const statusChanged = state.job && state.job.status !== j.status;
         state.job = j; lastSig = sig;
-        const typing = ["notes", "narr"].includes(document.activeElement?.id);
+        const typing = ["notes", "narr", "th-h", "th-s", "th-f"].includes(document.activeElement?.id);
         if (!typing || statusChanged || force) renderJob();
         else { const log = $("#log"); if (log) { const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 30; log.textContent = j.log; if (stick) log.scrollTop = log.scrollHeight; } }
       }
@@ -369,6 +419,7 @@ async function refresh(force = false) {
   render(); refresh(true);
   setInterval(refresh, 2000);
 })();
+document.addEventListener("wheel", () => { const el = document.activeElement; if (el && el.type === "number") el.blur(); }, { passive: true });
 window.addEventListener("hashchange", () => { if (location.hash.startsWith("#job:") && location.hash.slice(1) !== state.view) go(location.hash.slice(1)); });
 </script>
 </body>
