@@ -52,7 +52,7 @@ subtitles:
 - Each entry becomes one TTS clip.
 ```
 
-For explainers, give viewers time to think: end a line with `[pause N]` after each worked step or key result (≈2–2.5 s), and use `--pause` (≈1 s) for the rest. The pause is silence appended to that line and is included in its `duration_s`; the hint is not part of the subtitle text. Write maths the way it should be heard ("x squared", "a minus nine") — the cloned voice's pronunciation of single letters and the variable *a* is fixed automatically.
+For explainers, give viewers time to think: end a line with `[pause N]` after each worked step or key result (≈2 s), and use `--natural-pauses` so the other gaps follow how each line ends (or `--pause` for a fixed gap). Punctuate for breathing — the voice pauses where the punctuation does ("That gives: zero, minus four…") — and a line may end with a comma when the thought continues. The pause is silence appended to that line and is included in its `duration_s`; the hint is not part of the subtitle text. Write maths the way it should be heard ("x squared", "a minus nine") — the cloned voice's pronunciation of single letters and the variable *a* is fixed automatically.
 
 ### Phase 2: TTS
 
@@ -65,7 +65,7 @@ Local Kokoro voice `af_heart` by default; `--voice <name>` (e.g. `am_adam`, `bf_
 **Cloned voice** — narrate in the user's own voice from a recording of them:
 
 ```
-python "<TOOLS_DIR>/tts-generate.py" --narration narration.txt --clone <sample.m4a> --qa --pause 1
+python "<TOOLS_DIR>/tts-generate.py" --narration narration.txt --clone <sample.m4a> --qa --natural-pauses
 ```
 
 - Read the sample from where the user put it; don't copy it into `SESSION_DIR`. Best is 5–30 s of clean, *expressive* speech — the clone copies the sample's tone and pace, so a lively sample gives a lively narrator. It is trimmed to ≈12 s at a pause and transcribed automatically (`--clone-text "..."` overrides).

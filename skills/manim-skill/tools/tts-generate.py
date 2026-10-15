@@ -116,10 +116,10 @@ def tidy(audio, sr: int, lead: float = 0.15):
     import numpy as np
 
     db, hop = frame_db(audio, sr)
-    loud = np.where(db > db.max() - 40)[0]
-    if len(loud):
-        audio = audio[max(0, (loud[0] - 8) * hop):min(len(audio), (loud[-1] + 14) * hop)].copy()
-    fade = min(len(audio) // 2, int(0.01 * sr))
+    loud = np.where(db > db.max() - 50)[0]
+    if len(loud):   # keep the breath before the first word and the natural decay of the last
+        audio = audio[max(0, (loud[0] - 12) * hop):min(len(audio), (loud[-1] + 25) * hop)].copy()
+    fade = min(len(audio) // 2, int(0.03 * sr))
     if fade:
         audio[:fade] *= np.linspace(0, 1, fade)
         audio[-fade:] *= np.linspace(1, 0, fade)
@@ -249,6 +249,7 @@ _NUMBERS = "zero one two three four five six seven eight nine ten".split()
 
 def _words(text: str) -> list[str]:
     """Normalise to spoken words; the recogniser writes maths as symbols ("5x + y = -1")."""
+    text = re.sub(r"\b[A-Z]{2,4}\b", lambda m: " ".join(m.group()), text)  # IB -> I B, as spoken
     text = text.lower()
     text = re.sub(r"(\d)([a-z])", r"\1 \2", text)                       # 5x -> 5 x
     text = text.replace("=", " equals ").replace("+", " plus ").replace("/", " over ")
@@ -256,7 +257,7 @@ def _words(text: str) -> list[str]:
     text = text.replace("-", " ")
     text = re.sub(r"\d+", lambda m: number_words(m.group()), text)
     text = re.sub(r"[^a-z ]", " ", text)
-    same = {"x": "ex", "y": "why", "z": "zee", "zed": "zee", "t": "tee", "uh": "a", "eigh": "a",
+    same = {"x": "ex", "y": "why", "z": "zee", "zed": "zee", "t": "tee", "uh": "a", "eigh": "a", "mister": "mr", "missus": "mrs", "doctor": "dr",
             "summarise": "summarize"}
     return [same.get(w, w) for w in text.split()]
 
@@ -273,6 +274,7 @@ def accuracy(expected: str, heard: str) -> float:
 
 # ------------------------------------------------------- voice cloning -----
 MATH_FOLLOWERS = r"minus|plus|times|over|equals?|is|isn't|squared|cubed|can|could|gives?|slides|tends|approaches"
+TITLES = {"Mr": "Mister", "Mrs": "Missus", "Ms": "Miz", "Dr": "Doctor"}
 LETTER_WORDS = {"x": "ex", "y": "why", "z": "zee", "t": "tee", "b": "bee", "c": "see", "k": "kay", "n": "en"}
 
 
@@ -282,6 +284,8 @@ def speakable(text: str, say: dict[str, str] | None = None) -> str:
     ZipVoice is a Chinese/English model, so a lone "a" is read as the pinyin
     syllable; single maths letters are easy for it to slur.
     """
+    text = re.sub(r"\b(Mr|Mrs|Ms|Dr)\.?(?=\s)", lambda m: TITLES[m.group(1)], text)
+    text = re.sub(r"\b[A-Z]{2,4}\b", lambda m: " ".join(m.group()), text)   # IB -> I B, HL -> H L
     text = re.sub(rf"\ba\b(?=\s(?:{MATH_FOLLOWERS})\b)", "eigh,", text)   # the variable a ("ay", short beat)
     text = re.sub(r"\b(constant|parameter|variable) a\b", r"\1 eigh", text)
     text = re.sub(r"\ba\b(?=\s*(?:[.,;:!?)]|$))", "eigh", text)
@@ -377,7 +381,32 @@ def ffprobe_duration(mp3_path: str) -> float:
     return float(result.stdout.strip())
 
 
-def concat_mp3s(parts: list[str], out_path: str, durations: list[float] | None = None) -> None:
+STEP_WORDS = r"(So|Now|Next|First|Then|Finally|Remember|Notice|Part|Let's)\b"
+
+
+def natural_gap(text: str, next_text: str, hint: float | None) -> float:
+    """
+    Pause after a line, as a speaker would: short when the thought carries on, longer after a
+    sentence or a question, the hinted thinking time after a worked step, a beat more before a new
+    step, and a small deterministic variation so no two gaps are identical.
+    """
+    t = text.rstrip()
+    if hint is not None:
+        base = hint
+    elif t.endswith("?"):
+        base = 1.0
+    elif t.endswith((",", ";", ":", "-")) or not re.search(r"[.!?]$", t):
+        base = 0.35
+    else:
+        base = 0.7
+    if next_text and re.match(STEP_WORDS, next_text.strip()):
+        base += 0.2
+    jitter = int(hashlib.md5(text.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
+    return round(base * (0.88 + 0.24 * jitter), 3)
+
+
+def concat_mp3s(parts: list[str], out_path: str, durations: list[float] | None = None,
+                room_tone: bool = False) -> None:
     # Stream-copying MP3 packets accumulates encoder padding at every join.
     # Decode first, hold each clip to its timing budget (padding with silence
     # for pauses), and encode only once.
@@ -388,7 +417,10 @@ def concat_mp3s(parts: list[str], out_path: str, durations: list[float] | None =
         for i in range(len(parts))
     ]
     filters.append("".join(f"[a{i}]" for i in range(len(parts)))
-                   + f"concat=n={len(parts)}:v=0:a=1[audio]")
+                   + f"concat=n={len(parts)}:v=0:a=1" + ("[speech]" if room_tone else "[audio]"))
+    if room_tone:   # faint room sound under everything, so pauses don't sound like dropouts
+        filters.append(f"anoisesrc=color=pink:amplitude=0.0012:sample_rate=24000:duration={sum(durations):.3f}"
+                       "[room];[speech]aresample=24000[sp];[sp][room]amix=inputs=2:normalize=0:duration=first[audio]")
     subprocess.run(
         ["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(filters),
          "-map", "[audio]", "-codec:a", "libmp3lame", "-q:a", "2", out_path],
@@ -429,6 +461,8 @@ def main() -> None:
                         help="Speaking-rate multiplier (default 1; Kokoro also honours KOKORO_SPEED)")
     parser.add_argument("--pause", type=float, default=0.0,
                         help="Seconds of silence after every line without a [pause N] hint (default 0)")
+    parser.add_argument("--natural-pauses", action="store_true",
+                        help="Vary each pause with how the line ends (instead of --pause), and fill pauses with room tone")
     parser.add_argument("--qa", action="store_true",
                         help="Transcribe each new clip and retake cloned lines that don't match the script")
     parser.add_argument("--retakes", type=int, default=2, help="Max extra takes per line with --qa (default 2)")
@@ -499,11 +533,15 @@ def main() -> None:
 
     print("Measuring durations...")
     speech = [ffprobe_duration(p) for p in parts]
-    pauses = [args.pause if hint is None else hint for _, hint in entries]
+    if args.natural_pauses:
+        pauses = [natural_gap(text, entries[i + 1][0] if i + 1 < len(entries) else "", hint)
+                  for i, (text, hint) in enumerate(entries)]
+    else:
+        pauses = [args.pause if hint is None else hint for _, hint in entries]
     durations = [s + p for s, p in zip(speech, pauses)]
 
     print(f"Concatenating {len(parts)} clips → {args.out_audio}")
-    concat_mp3s(parts, args.out_audio, durations)
+    concat_mp3s(parts, args.out_audio, durations, room_tone=args.natural_pauses)
 
     start = 0.0
     out = []

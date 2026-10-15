@@ -22,6 +22,12 @@ manim skill end to end:
 Paste several questions in a row: one script is written while another video renders, and each
 video waits for you at the two review points.
 
+**Your channel in every video.** Each script opens with your greeting ("Hello, and welcome to
+Mr. Liam IB Maths!") spoken over your logo, which then shrinks to a corner badge as the topic
+begins. Set the greeting and logo under ⚙ Settings → Channel branding. Narration uses natural
+pauses by default: short where a thought carries on, longer after questions and worked steps, with
+soft room tone instead of dead silence.
+
 ## Start it
 
 Double-click **`Manim Studio.command`** in this folder (macOS), or from a terminal:
