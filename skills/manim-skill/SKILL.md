@@ -68,7 +68,7 @@ Local Kokoro voice `af_heart` by default; `--voice <name>` (e.g. `am_adam`, `bf_
 python "<TOOLS_DIR>/tts-generate.py" --narration narration.txt --clone <sample.m4a> --qa --natural-pauses
 ```
 
-- Read the sample from where the user put it; don't copy it into `SESSION_DIR`. Best is 5–30 s of clean, *expressive* speech — the clone copies the sample's tone and pace, so a lively sample gives a lively narrator. It is trimmed to ≈12 s at a pause and transcribed automatically (`--clone-text "..."` overrides).
+- Read the sample from where the user put it; don't copy it into `SESSION_DIR`. Best is 5–30 s of clean, *expressive* speech — the clone copies the sample's tone and pace, so a lively sample gives a lively narrator. It is trimmed to ≈12 s at a pause and transcribed automatically (`--clone-text "..."` overrides). Given a longer recording (minutes), run `python "<TOOLS_DIR>/voice-pick.py" <recording> --out-dir <dir>` first: it ranks 5–12 s clips by how much their clone sounds like the speaker; use the best `clip-NN.wav` with its transcript.
 - `--qa` transcribes every take and retakes lines that don't match the script (`--retakes`, default 2); a `WARNING` line means listen to that clip and rephrase or `--bust` it. Keep `--qa` on for cloned voices.
 - British speakers say "zed": add `--say z=zed` (any letter or word can be respelled this way, e.g. `--say alpha=alfa`). Infer it from the user's spelling/accent or ask.
 - `--speed 1.1` if the sample's pace makes the narration drag; `--clone-guidance` (default 1.5) trades expressiveness against stability.
