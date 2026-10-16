@@ -345,7 +345,7 @@ function renderSettings() {
     ${healthCard()}`;
   const upload = (id, url, done) => $(id).onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
-    try { const r = await fetch(url, { method: "POST", headers: { "X-Filename": f.name }, body: f });
+    try { const r = await fetch(url, { method: "POST", headers: { "X-Filename": encodeURIComponent(f.name) }, body: f });
       const d = await r.json(); if (!r.ok) throw new Error(d.error); await done(d);
     } catch (err) { toast(err.message); }
   };

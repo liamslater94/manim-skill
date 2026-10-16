@@ -1245,7 +1245,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif path == "/api/settings":
                 self.send_json(save_settings(json.loads(self.read_body() or b"{}")))
             elif path == "/api/logo":
-                ext = Path(self.headers.get("X-Filename", "logo.png")).suffix.lower() or ".png"
+                ext = Path(unquote(self.headers.get("X-Filename", "logo.png"))).suffix.lower() or ".png"
                 if ext not in {".png", ".jpg", ".jpeg", ".webp"}:
                     raise ValueError("Use a PNG (ideally with a transparent background), JPG or WebP image.")
                 STUDIO_DIR.mkdir(parents=True, exist_ok=True)
@@ -1261,7 +1261,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     raise ValueError("That file doesn't look like an image.")
                 self.send_json(save_settings({"logo": str(dest)}))
             elif path == "/api/voice":
-                name = Path(self.headers.get("X-Filename", "voice.m4a")).name
+                name = Path(unquote(self.headers.get("X-Filename", "voice.m4a"))).name
                 ext = Path(name).suffix.lower() or ".m4a"
                 if ext not in {".m4a", ".mp3", ".wav", ".aac", ".flac", ".ogg", ".mp4", ".mov", ".webm"}:
                     raise ValueError("Use an audio file (m4a, mp3, wav, …).")
@@ -1272,7 +1272,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 dest.write_bytes(self.read_body())
                 self.send_json(save_settings({"voice_sample": str(dest), "voice_text": "", "voice_pick_used": ""}))
             elif path == "/api/voice-recording":
-                ext = Path(self.headers.get("X-Filename", "voice.m4a")).suffix.lower() or ".m4a"
+                ext = Path(unquote(self.headers.get("X-Filename", "voice.m4a"))).suffix.lower() or ".m4a"
                 if ext not in {".m4a", ".mp3", ".wav", ".aac", ".flac", ".ogg", ".mp4", ".mov", ".webm"}:
                     raise ValueError("Use an audio file (m4a, mp3, wav, …).")
                 STUDIO_DIR.mkdir(parents=True, exist_ok=True)
@@ -1284,7 +1284,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif path == "/api/voice-pick/use":
                 self.send_json(use_voice_pick(json.loads(self.read_body() or b"{}").get("id", "")))
             elif path == "/api/music":
-                ext = Path(self.headers.get("X-Filename", "music.mp3")).suffix.lower() or ".mp3"
+                ext = Path(unquote(self.headers.get("X-Filename", "music.mp3"))).suffix.lower() or ".mp3"
                 if ext not in MUSIC_EXTS:
                     raise ValueError("Use an audio file (mp3, m4a, wav, …).")
                 STUDIO_DIR.mkdir(parents=True, exist_ok=True)
