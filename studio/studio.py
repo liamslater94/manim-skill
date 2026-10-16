@@ -62,7 +62,7 @@ DEFAULT_SETTINGS = {
     "greeting": "Hello, and welcome to Mr. Liam IB Maths!",
     "endscreen_seconds": 20.0,
     "signoff": "Thanks for watching! Pick one of these videos to keep learning.",
-    "hook_first": True,
+    "house_style": True,
     "pause_try": True,
     "maths_check": True,
     "house_notes": "",
@@ -318,18 +318,16 @@ def voice_command(narration: str = "narration.txt", out_audio: str = "voiceover.
 def script_rules(s: dict) -> str:
     """Opening, watch-along and ending rules for narration.txt, from the settings."""
     greeting = s.get("greeting", "").strip()
-    hook = ("one or two short sentences (under 25 words) that make a student want to keep watching: the "
-            "surprising result, the trap most students fall into, or what they'll be able to do by the end. It "
-            "is about the question, not the channel.")
     rules = []
-    if s.get("hook_first"):
-        rules.append(f"- Line 1 is the hook: {hook}")
-        if greeting:
-            rules.append(f"- Line 2 must be exactly: {greeting}\n  (It plays over the channel logo.) Start the "
-                         "explanation on line 3.")
-    elif greeting:
-        rules.append(f"- The first line must be exactly: {greeting}\n  (It plays over the channel logo.) Start the "
-                     "explanation on the second line.")
+    if greeting:
+        rules.append(f"- The first line must be exactly: {greeting}\n  (It plays over the channel logo.)")
+    rules.append("""- Then a proper introduction, in 3–6 lines, before any working:
+  * name the topic and where it sits in the course (e.g. "This is a classic Paper 1 question on systems of
+    equations with a parameter");
+  * a hook: why it's worth knowing, the trap students often fall into, or what they'll be able to do by the end;
+  * read through the question, part by part, saying what each part is really asking;
+  * outline the plan of attack ("First we'll…, then…, and finally…").
+  Only then start the working. Keep the tone warm and welcoming: you are the teacher, talking to one student.""")
     if s.get("pause_try"):
         rules.append("- Include one or two 'pause and try' moments at natural points: a line inviting the viewer to "
                      "pause the video and try the next step themselves (say exactly what to try), ending with "
@@ -446,42 +444,50 @@ ENDCARD_RULE = ("\nEnding: finish on the summary. Do not draw end cards, 'more v
 
 
 def opening_instructions() -> str:
-    """How the first scene opens: a hook on screen at once, then the channel logo during the greeting."""
+    """How the video opens: the channel logo during the greeting, then an introduction before any working."""
     s = load_settings()
     greeting = s.get("greeting", "").strip()
-    hook = bool(s.get("hook_first"))
     parts = []
-    if hook:
-        parts.append("Opening: the first narration line is a hook. Have something worth watching on screen from the "
-                     "very first frame (the question itself, or the most striking visual of the solution), never a "
-                     "blank or title-only screen.")
     if greeting:
-        which = "second" if hook else "first"
         if s.get("logo") and Path(s["logo"]).exists():
-            parts.append(f"The {which} narration line is the channel greeting: clear the screen and call "
-                         "logo_open(self, <that line's duration minus the time used to clear>) from house_style "
-                         "(it shows channel-logo.png, centred and undistorted), then fade the logo out as the "
-                         "explanation begins.")
+            parts.append("Opening: the first narration line is the channel greeting. For that line show the channel logo, "
+                         "channel-logo.png, centred and undistorted (house_style's logo_open(self, <that line's "
+                         "duration>) does this), then fade it out.")
         else:
-            parts.append(f"The {which} narration line is the channel greeting: show title_card(\"{s.get('channel', '')}\") "
-                         "while it plays, then move into the topic.")
-    return ("\n" + " ".join(parts) + "\n") if parts else ""
+            parts.append(f"Opening: the first narration line is the channel greeting. Show the channel name "
+                         f"\"{s.get('channel', '')}\" as a large, clean title card while it plays.")
+    parts.append("Then the introduction lines get their own unhurried introduction scene: a title card with the "
+                 "topic while it is introduced; then the full question, large and clear, given time to be read "
+                 "while the narration reads through it (highlight each part as it is discussed); then the plan of "
+                 "attack as a short numbered list if the narration gives one. Start the working only after the "
+                 "introduction, in the next scene.")
+    return "\n" + " ".join(parts) + "\n"
 
 
 def house_rules() -> str:
     s = load_settings()
+    if not s.get("house_style", True):
+        rules = ("\nStyle: design the visuals yourself, following the skill. Keep the screen clean and uncluttered, "
+                 "build each step up as it is spoken, and colour-code variables consistently.\n")
+        if s.get("pause_try"):
+            rules += ("For a line that invites the viewer to pause and try, show the task on screen and a simple "
+                      "countdown during that line's pause.\n")
+        return rules + (f"The teacher's own style notes: {s['house_notes'].strip()}\n" if s.get("house_notes", "").strip() else "")
     rules = """
 House style: house_style.py is in the current directory; read it first. Start script.py with
 `from manim import *` then `from house_style import *`, and use its palette, sizes and helpers so every video
 on the channel looks the same and is easy to watch along to:
 - Colour-code variables with mt() / paint(): x, y, z and the parameters keep their VAR_COLORS all video.
 - Keep everything above SAFE_BOTTOM: captions and the YouTube player bar cover the bottom of the frame.
-- Once the question has been shown in full, keep a QuestionPin of it in the top-left corner while working
-  (hide it only when a full-screen visual needs the room), so students never have to scroll back.
+- Once the working starts (after the introduction), keep a QuestionPin of the question in the top-left
+  corner (hide it when a full-screen visual needs the room), so students never have to scroll back.
 - step_chip() names the current step in the top-right corner (e.g. "STEP 2 · Row reduce").
-- Show what is being said: whenever a line refers to a term, row, equation or part of a diagram, spotlight()
-  or emphasise() it during that line, and build each step up as it is spoken rather than all at once.
+- Show what is being said: when a line refers to a term, row, equation or part of a diagram, spotlight() or
+  emphasise() it during that line, and build each step up as it is spoken rather than all at once.
 - result_box() around each final answer; callout("…", WARN) when the narration warns about a common mistake.
+- Use these helpers where they help the viewer, not on every line. The screen should feel calm and
+  uncluttered, with generous spacing, large readable maths and unhurried animations; the helpers support
+  the explanation and never replace good, well-composed visuals of the mathematics itself.
 """
     if s.get("pause_try"):
         rules += ("- For a line that invites the viewer to pause and try (it ends with a pause of about 4 s), show "

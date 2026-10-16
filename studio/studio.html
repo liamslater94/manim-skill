@@ -279,8 +279,8 @@ function renderSettings() {
     </div>
     <div class="card">
       <h2>Watch-along & style</h2>
-      <div class="sub">Every video uses the channel's house style: one colour per variable, the question pinned in the corner, the current step labelled, and what's being said highlighted on screen.</div>
-      ${box("hook", s.hook_first, "Hook first, then the greeting", "The video opens with a one-line hook about the question (viewers decide in the first 10 seconds), then your greeting over the logo.")}
+      <div class="sub">Every video opens with your greeting over the logo, then a proper introduction (the topic, why it matters, the question read through, and the plan) before any working.</div>
+      ${box("hstyle", s.house_style ?? true, "Use the house style", "Pinned question, step labels, highlights and colour-coded variables, the same in every video. Untick to let Claude design each video freely, as before.")}
       ${box("ptry", s.pause_try, "Pause & try moments", "One or two points where students are invited to pause and try the next step, with an on-screen countdown.")}
       ${box("mcheck", s.maths_check, "Independent maths check", "A second Claude solves every question from scratch and flags anything that disagrees with the script (uses a little more of your Claude allowance).")}
       <label for="notes-style">Your style notes (optional)</label><textarea id="notes-style" rows="2" placeholder="e.g. Always show a sketch for vectors questions. Use 'GDC' not 'calculator'.">${esc(s.house_notes || "")}</textarea>
@@ -357,7 +357,7 @@ function renderSettings() {
     try { state.settings = await api("/api/settings", { say: $("#say").value, speed: +$("#speed").value, pause: +$("#pause").value,
       guidance: +$("#guid").value, channel: $("#chan").value, badge: $("#badge").value, greeting: $("#greet").value,
       endscreen_seconds: Math.min(20, +$("#endsec").value || 0), signoff: $("#signoff").value, natural_pauses: $("#natural").checked,
-      hook_first: $("#hook").checked, pause_try: $("#ptry").checked, maths_check: $("#mcheck").checked, house_notes: $("#notes-style").value,
+      house_style: $("#hstyle").checked, pause_try: $("#ptry").checked, maths_check: $("#mcheck").checked, house_notes: $("#notes-style").value,
       music: $("#music").value, music_level: Math.min(100, +$("#mlevel").value || 0), shorts: $("#shorts").checked, worksheet: $("#wsheet").checked,
       accent: $("#accent").value, audience: $("#saud").value, minutes: +$("#smin").value, claude: $("#claude").value, model: $("#model").value });
       toast("Settings saved"); renderSettings(); } catch (e) { toast(e.message); }

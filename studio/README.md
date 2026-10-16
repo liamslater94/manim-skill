@@ -5,7 +5,8 @@ ready for YouTube. Manim Studio is a small app that runs on your computer and dr
 manim skill end to end:
 
 1. **Script.** Claude Code writes the narration and an outline with a fully worked solution. It
-   opens on a one-line hook, then your greeting; includes one or two "pause and try" moments; and
+   opens with your greeting, then a proper introduction (the topic, a hook, the question read
+   through, and the plan) before any working; includes one or two "pause and try" moments; and
    points out common mistakes. A second Claude then solves the question **independently** and
    flags anything that disagrees (with a button to have the first fix it). You check the maths,
    edit the narration directly or ask for changes, then approve.
@@ -47,7 +48,7 @@ and upload it under ⚙ Settings → Your voice → *Find my best clip*. The app
 every take, scores how much each sounds like you (speaker similarity) and how clearly it speaks,
 and lets you listen to the best three before choosing (`tools/voice-pick.py`).
 
-**Your channel in every video.** After the hook, your greeting ("Hello, and welcome to
+**Your channel in every video.** Your greeting ("Hello, and welcome to
 Mr. Liam IB Maths!") plays over your logo, which then fades as the topic begins. Set the greeting and logo under ⚙ Settings → Channel branding. Narration uses natural
 pauses by default: short where a thought carries on, longer after questions and worked steps, with
 soft room tone instead of dead silence.
