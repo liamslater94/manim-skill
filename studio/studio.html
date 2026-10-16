@@ -97,7 +97,29 @@
   .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #27272a; color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 10; }
   .toast.show { opacity: 1; }
   .muted { color: var(--text-tertiary); }
+  .check { display: flex; gap: 10px; align-items: flex-start; font-weight: 500; color: var(--text-primary); margin-top: 12px; }
+  .check input { margin-top: 3px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 8px; }
+  .tile { border: 2px solid transparent; border-radius: 10px; cursor: pointer; overflow: hidden; background: var(--bg-soft); }
+  .tile.sel { border-color: var(--accent); }
+  .tile img { width: 100%; display: block; }
+  .tile .cap { font-size: 12px; padding: 6px 8px; color: var(--text-secondary); }
+  .pick { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; padding: 12px 0; border-top: 1px solid var(--border); align-items: center; }
+  .pick audio { width: 100%; height: 34px; }
+  .bar { height: 6px; background: var(--bg-soft); border-radius: 99px; overflow: hidden; margin-top: 8px; }
+  .bar > div { height: 100%; background: var(--accent); transition: width .4s; }
+  .verdict { padding: 12px 14px; border-radius: 10px; margin-top: 10px; }
+  .verdict.agree { background: var(--accent-muted); }
+  .verdict.disagree { background: var(--danger-muted); }
+  .verdict.unsure { background: var(--warn-muted); }
+  .verdict ul { margin: 6px 0 0 18px; }
+  .titles li { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--border); list-style: none; }
+  .titles li span { flex: 1; }
+  .plan-v { padding: 10px 0; border-top: 1px solid var(--border); display: flex; gap: 12px; align-items: flex-start; }
+  .plan-v > div { flex: 1; min-width: 0; }
+  video.vertical { max-width: 320px; margin: 0 auto; }
   @media (max-width: 860px) {
+    .grid3 { grid-template-columns: 1fr; }
     .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; min-height: 100vh; }
     aside { border-right: none; border-bottom: 1px solid var(--border); max-height: 40vh; }
     .grid2 { grid-template-columns: 1fr; }
@@ -114,6 +136,7 @@
       <button class="btn primary full" onclick="go('new')">+ New video</button>
       <button class="btn" onclick="go('settings')" title="Voice & settings">⚙</button>
     </div>
+    <div class="side-actions"><button class="btn full" onclick="go('plans')">Plan a series</button></div>
     <div class="jobs" id="jobs"></div>
   </aside>
   <main><div class="wrap" id="view"></div></main>
@@ -124,6 +147,7 @@
 const STATUS = {
   queued_script: ["Waiting to write script", "run"], scripting: ["Writing script", "run"],
   script_ready: ["Check the script", "wait"],
+  queued_check: ["Waiting to check the maths", "run"], checking: ["Checking the maths", "run"],
   queued_voice: ["Waiting to voice", "run"], voicing: ["Recording voice", "run"],
   queued_video: ["Waiting to animate", "run"], rendering: ["Animating", "run"],
   review: ["Watch & review", "wait"],
@@ -131,16 +155,17 @@ const STATUS = {
   queued_export: ["Waiting to export", "run"], exporting: ["Exporting 1080p", "run"],
   done: ["Ready for YouTube", "ok"], failed: ["Failed", "bad"], cancelled: ["Cancelled", "bad"],
 };
-const STEP_OF = { queued_script: 0, scripting: 0, script_ready: 0, queued_voice: 1, voicing: 1,
+const STEP_OF = { queued_script: 0, scripting: 0, script_ready: 0, queued_check: 0, checking: 0, queued_voice: 1, voicing: 1,
   queued_video: 2, rendering: 2, review: 2, queued_revise: 2, revising: 2, queued_export: 3, exporting: 3, done: 4 };
 const RUN_TEXT = {
-  scripting: "Claude is writing the narration and a worked solution for you to check.",
+  scripting: "Claude is writing the narration and a worked solution, then a second Claude checks the maths independently.",
+  checking: "A second Claude is solving the question from scratch and comparing it with the script.",
   voicing: "Narrating in your voice and checking every take. This takes a few minutes.",
   rendering: "Claude is writing and rendering the animation, then checking frames. Usually 10–25 minutes.",
   revising: "Claude is applying your notes and re-rendering the affected scenes.",
-  exporting: "Rendering the final 1080p version and writing the YouTube text.",
+  exporting: "Rendering 1080p, then titles, thumbnails, Short, worksheet, end screen and audio mastering.",
 };
-let state = { view: "new", jobs: [], job: null, health: null, settings: null, image: null };
+let state = { view: "new", jobs: [], job: null, health: null, settings: null, image: null, thumb: 0, pick: null, plans: [] };
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
@@ -157,7 +182,7 @@ async function act(action, body = {}) {
   catch (e) { toast(e.message); }
 }
 function go(view) {
-  if (view !== state.view) { state.job = null; state.dirty = false; lastSig = ""; }
+  if (view !== state.view) { state.job = null; state.dirty = false; state.thumb = 0; lastSig = ""; }
   state.view = view;
   history.replaceState(null, "", view.startsWith("job:") ? "#" + view : location.pathname);
   render(); refresh(true);
@@ -200,6 +225,10 @@ function renderNew() {
         <div><label for="aud">Audience</label><input type="text" id="aud" value="${esc(s.audience || "")}"></div>
         <div style="max-width:180px"><label for="min">Target length (min)</label><input type="number" id="min" min="1" max="20" step="0.5" value="${esc(s.minutes || 4)}"></div>
       </div>
+      <div class="row">
+        <div><label for="src">Exam reference (optional)</label><input type="text" id="src" placeholder="e.g. May 2024 Paper 1 Q9"><div class="hint">Students search for these; it goes in the title and description.</div></div>
+        <div><label for="ser">Series / playlist (optional)</label><input type="text" id="ser" placeholder="e.g. Vectors"></div>
+      </div>
       <div class="actions"><button class="btn primary" id="create">Write the script</button>
       <span class="muted" id="cmsg"></span></div>
     </div>`;
@@ -215,7 +244,7 @@ function renderNew() {
   $("#create").onclick = async () => {
     const btn = $("#create"); btn.disabled = true; $("#cmsg").textContent = "Starting…";
     try {
-      const job = await api("/api/jobs", { question: $("#q").value, audience: $("#aud").value, minutes: parseFloat($("#min").value) || 4, image: state.image });
+      const job = await api("/api/jobs", { question: $("#q").value, audience: $("#aud").value, minutes: parseFloat($("#min").value) || 4, image: state.image, source: $("#src").value, series: $("#ser").value });
       state.image = null; go("job:" + job.id);
     } catch (e) { toast(e.message); btn.disabled = false; $("#cmsg").textContent = ""; }
   };
@@ -224,38 +253,68 @@ function renderNew() {
 function renderSettings() {
   const s = state.settings; if (!s) { $("#view").innerHTML = "Loading…"; return; }
   const voiceName = s.voice_sample ? s.voice_sample.split("/").pop() : "";
+  const musicName = s.music_file ? s.music_file.split("/").pop() : "";
+  const box = (id, on, title, hint) => `<label class="check"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span>${title}<span class="hint" style="display:block;margin-top:2px">${hint}</span></span></label>`;
   $("#view").innerHTML = `
     <h1>Voice & settings</h1>
     <div class="card">
       <h2>Your voice</h2>
-      <div class="sub">5–30 seconds of you speaking clearly and with energy, recorded indoors. The clone copies your tone and pace, so record it the way you want to sound in videos.</div>
+      <div class="sub">The clone copies about 12 seconds of you, so the best 12 seconds matter more than a long recording.</div>
+      <h2 style="margin-top:16px;font-size:14px">Find my best clip <span class="pill ok">recommended</span></h2>
+      <div class="sub">Read the <a href="/voice-script" target="_blank">recording script</a> (about 5 minutes) in one go and upload it. The app clones a test line from every take, scores how much each sounds like you, and lets you listen to the best before choosing. Takes about 10 minutes.</div>
+      <div class="actions"><input type="file" id="longrec" accept="audio/*,video/*" hidden>
+        <button class="btn primary" onclick="$('#longrec').click()">Upload recording & find my best clip</button></div>
+      <div id="vp"></div>
+      <h2 style="margin-top:18px;font-size:14px">Or use a short sample</h2>
       <div class="actions"><input type="file" id="voice" accept="audio/*,video/*" hidden>
         <button class="btn" onclick="$('#voice').click()">${voiceName ? "Replace voice sample" : "Upload voice sample"}</button>
-        <span class="${voiceName ? "" : "muted"}">${voiceName ? "✓ " + esc(voiceName) : "No sample yet: the stock Kokoro voice will be used"}</span></div>
+        <span class="${voiceName ? "" : "muted"}">${voiceName ? "✓ In use: " + esc(voiceName) + (s.voice_pick_used ? " (" + esc(s.voice_pick_used) + " from your recording)" : "") : "No sample yet: the stock Kokoro voice will be used"}</span></div>
       <div class="row">
         <div><label for="say">Pronunciations</label><input type="text" id="say" value="${esc(s.say)}"><div class="hint">e.g. <code>z=zed</code>. Comma-separated <code>word=spoken</code> pairs.</div></div>
         <div><label for="speed">Speaking speed</label><input type="number" id="speed" step="0.05" min="0.7" max="1.5" value="${s.speed}"></div>
         <div><label for="pause">Pause after each line (s)</label><input type="number" id="pause" step="0.25" min="0" max="5" value="${s.pause}"><div class="hint">Used only when natural pauses are off.</div></div>
         <div><label for="guid">Expressiveness</label><input type="number" id="guid" step="0.1" min="0.5" max="3" value="${s.guidance}"><div class="hint">Higher = livelier, lower = steadier (default 1.5).</div></div>
       </div>
-      <label style="display:flex;gap:10px;align-items:flex-start;font-weight:500;color:var(--text-primary);margin-top:14px">
-        <input type="checkbox" id="natural" ${s.natural_pauses ? "checked" : ""} style="margin-top:3px">
-        <span>Natural pauses<span class="hint" style="display:block;margin-top:2px">Each pause fits how the line ends (short when the thought carries on, longer after a question or a worked step), with soft room tone instead of dead silence.</span></span></label>
+      ${box("natural", s.natural_pauses, "Natural pauses", "Each pause fits how the line ends (short when the thought carries on, longer after a question or a worked step), with soft room tone instead of dead silence.")}
+    </div>
+    <div class="card">
+      <h2>Watch-along & style</h2>
+      <div class="sub">Every video uses the channel's house style: one colour per variable, the question pinned in the corner, the current step labelled, and what's being said highlighted on screen.</div>
+      ${box("hook", s.hook_first, "Hook first, then the greeting", "The video opens with a one-line hook about the question (viewers decide in the first 10 seconds), then your greeting over the logo.")}
+      ${box("ptry", s.pause_try, "Pause & try moments", "One or two points where students are invited to pause and try the next step, with an on-screen countdown.")}
+      ${box("mcheck", s.maths_check, "Independent maths check", "A second Claude solves every question from scratch and flags anything that disagrees with the script (uses a little more of your Claude allowance).")}
+      <label for="notes-style">Your style notes (optional)</label><textarea id="notes-style" rows="2" placeholder="e.g. Always show a sketch for vectors questions. Use 'GDC' not 'calculator'.">${esc(s.house_notes || "")}</textarea>
     </div>
     <div class="card">
       <h2>Channel branding</h2>
-      <div class="sub">Your logo opens every video while the greeting plays, and appears on thumbnails.</div>
+      <div class="sub">Your logo opens every video while the greeting plays, and appears on thumbnails, Shorts and worksheets.</div>
       <div class="actions"><input type="file" id="logo" accept="image/png,image/jpeg,image/webp" hidden>
         ${s.logo ? `<img src="/api/logo?v=${Date.now()}" alt="Your logo" style="height:56px;max-width:220px;object-fit:contain;background:#0b0f14;border-radius:8px;padding:6px">` : ""}
         <button class="btn" onclick="$('#logo').click()">${s.logo ? "Replace logo" : "Upload logo"}</button>
         <span class="muted">${s.logo ? "" : "PNG with a transparent background works best"}</span></div>
       <div class="row">
         <div><label for="chan">Channel name</label><input type="text" id="chan" value="${esc(s.channel)}"><div class="hint">Shown instead of the logo if no logo is uploaded.</div></div>
-        <div><label for="badge">Badge</label><input type="text" id="badge" value="${esc(s.badge)}"><div class="hint">Small label at the bottom; leave empty for none.</div></div>
-        <div style="max-width:160px"><label for="accent">Thumbnail accent</label><input type="color" id="accent" value="${esc(s.accent || "#FFD23F")}" style="height:40px;padding:4px"></div>
+        <div><label for="badge">Badge</label><input type="text" id="badge" value="${esc(s.badge)}"><div class="hint">On thumbnails and worksheets, and added to titles for search.</div></div>
+        <div style="max-width:160px"><label for="accent">Accent colour</label><input type="color" id="accent" value="${esc(s.accent || "#FFD23F")}" style="height:40px;padding:4px"></div>
       </div>
       <label for="greet">Opening greeting</label><input type="text" id="greet" value="${esc(s.greeting || "")}" placeholder="e.g. Hello, and welcome to Mr. Liam IB Maths!">
-      <div class="hint">The first line of every new script, spoken over your logo. Leave empty for no greeting.</div>
+      <div class="hint">Spoken over your logo in every new script. Leave empty for no greeting.</div>
+    </div>
+    <div class="card">
+      <h2>Music</h2>
+      <div class="sub">A quiet music bed that dips automatically whenever you speak. Every export is also levelled to YouTube's standard loudness.</div>
+      <div class="row">
+        <div><label for="music">Play music</label><select id="music">
+          <option value="intro_outro" ${s.music === "intro_outro" ? "selected" : ""}>Opening and end screen only</option>
+          <option value="throughout" ${s.music === "throughout" ? "selected" : ""}>Throughout, very quietly</option>
+          <option value="off" ${s.music === "off" ? "selected" : ""}>No music</option></select></div>
+        <div style="max-width:200px"><label for="mlevel">Music level (0–100)</label><input type="number" id="mlevel" min="0" max="100" step="5" value="${s.music_level ?? 30}"></div>
+      </div>
+      <div class="actions"><input type="file" id="mfile" accept="audio/*" hidden>
+        <button class="btn" onclick="$('#mfile').click()">${musicName ? "Replace music" : "Upload your own music"}</button>
+        ${musicName ? `<span>✓ ${esc(musicName)}</span><button class="btn" onclick="clearMusic()">Use the built-in pad</button>` : `<span class="muted">Using a soft built-in pad (made by the app, free to use)</span>`}</div>
+      ${s.music !== "off" ? `<audio controls preload="none" src="/api/music?v=${esc(musicName)}" style="width:100%;margin-top:10px"></audio>` : ""}
+      <div class="hint">Free tracks: YouTube Studio → <b>Audio Library</b> (choose ones marked "no attribution required").</div>
     </div>
     <div class="card">
       <h2>End screen</h2>
@@ -264,6 +323,12 @@ function renderSettings() {
         <div style="max-width:200px"><label for="endsec">Length (s)</label><input type="number" id="endsec" step="1" min="0" max="20" value="${s.endscreen_seconds ?? 20}"><div class="hint">YouTube allows 5–20 s. 0 turns it off.</div></div>
         <div><label for="signoff">Spoken sign-off</label><input type="text" id="signoff" value="${esc(s.signoff || "")}" placeholder="e.g. Thanks for watching! Pick one of these videos to keep learning."><div class="hint">Said in your voice over the end screen. Leave empty for silence.</div></div>
       </div>
+    </div>
+    <div class="card">
+      <h2>Extras made at export</h2>
+      <div class="sub">Always included: three titles and three thumbnails for YouTube's Test & compare, chapters and subtitles.</div>
+      ${box("shorts", s.shorts, "YouTube Short", "A vertical clip (under 60 s) of the best moment, with big captions and a hook title.")}
+      ${box("wsheet", s.worksheet, "Practice worksheet (PDF)", "5–6 similar questions with worked answers, branded with your logo, to link in the description.")}
     </div>
     <div class="card">
       <h2>Defaults for new videos</h2>
@@ -275,27 +340,101 @@ function renderSettings() {
         <div><label for="claude">Claude Code command</label><input type="text" id="claude" value="${esc(s.claude)}"></div>
         <div><label for="model">Model (optional)</label><input type="text" id="model" value="${esc(s.model)}" placeholder="default"></div>
       </div>
-      <div class="actions"><button class="btn primary" id="save">Save settings</button></div>
     </div>
+    <div class="actions" style="position:sticky;bottom:0;background:var(--bg-main);padding:12px 0"><button class="btn primary" id="save">Save settings</button></div>
     ${healthCard()}`;
-  $("#logo").onchange = async (e) => {
+  const upload = (id, url, done) => $(id).onchange = async (e) => {
     const f = e.target.files[0]; if (!f) return;
-    try { const r = await fetch("/api/logo", { method: "POST", headers: { "X-Filename": f.name }, body: f });
-      const d = await r.json(); if (!r.ok) throw new Error(d.error); state.settings = d; toast("Logo saved"); renderSettings();
+    try { const r = await fetch(url, { method: "POST", headers: { "X-Filename": f.name }, body: f });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error); await done(d);
     } catch (err) { toast(err.message); }
   };
-  $("#voice").onchange = async (e) => {
-    const f = e.target.files[0]; if (!f) return;
-    try { const r = await fetch("/api/voice", { method: "POST", headers: { "X-Filename": f.name }, body: f });
-      const d = await r.json(); if (!r.ok) throw new Error(d.error); state.settings = d; toast("Voice sample saved"); await refresh(true); renderSettings();
-    } catch (err) { toast(err.message); }
-  };
+  upload("#logo", "/api/logo", async (d) => { state.settings = d; toast("Logo saved"); renderSettings(); });
+  upload("#voice", "/api/voice", async (d) => { state.settings = d; toast("Voice sample saved"); await refresh(true); renderSettings(); });
+  upload("#mfile", "/api/music", async (d) => { state.settings = d; toast("Music saved"); renderSettings(); });
+  upload("#longrec", "/api/voice-recording", async (d) => { state.pick = d; toast("Testing your takes…"); renderPick(); });
   $("#save").onclick = async () => {
     try { state.settings = await api("/api/settings", { say: $("#say").value, speed: +$("#speed").value, pause: +$("#pause").value,
-      guidance: +$("#guid").value, channel: $("#chan").value, badge: $("#badge").value, greeting: $("#greet").value, endscreen_seconds: Math.min(20, +$("#endsec").value || 0), signoff: $("#signoff").value, natural_pauses: $("#natural").checked, accent: $("#accent").value, audience: $("#saud").value, minutes: +$("#smin").value, claude: $("#claude").value, model: $("#model").value });
-      toast("Settings saved"); } catch (e) { toast(e.message); }
+      guidance: +$("#guid").value, channel: $("#chan").value, badge: $("#badge").value, greeting: $("#greet").value,
+      endscreen_seconds: Math.min(20, +$("#endsec").value || 0), signoff: $("#signoff").value, natural_pauses: $("#natural").checked,
+      hook_first: $("#hook").checked, pause_try: $("#ptry").checked, maths_check: $("#mcheck").checked, house_notes: $("#notes-style").value,
+      music: $("#music").value, music_level: Math.min(100, +$("#mlevel").value || 0), shorts: $("#shorts").checked, worksheet: $("#wsheet").checked,
+      accent: $("#accent").value, audience: $("#saud").value, minutes: +$("#smin").value, claude: $("#claude").value, model: $("#model").value });
+      toast("Settings saved"); renderSettings(); } catch (e) { toast(e.message); }
   };
+  renderPick();
 }
+
+async function clearMusic() { try { state.settings = await api("/api/music/clear", {}); renderSettings(); } catch (e) { toast(e.message); } }
+
+function renderPick() {
+  const el = $("#vp"), p = state.pick; if (!el || !p || p.status === "none") { if (el) el.innerHTML = ""; return; }
+  if (p.status === "running") {
+    const [d, t] = p.progress || [0, 0];
+    el.innerHTML = `<div class="banner run"><span class="spin"></span><div class="msg">${t ? `Testing take ${d} of ${t}…` : "Finding the takes in your recording…"}
+      <div class="bar"><div style="width:${t ? Math.round(100 * (d - 1) / t) : 3}%"></div></div></div></div>`;
+    return;
+  }
+  if (p.status === "failed") { el.innerHTML = `<div class="banner bad"><div class="msg"><b>Couldn't test that recording.</b><pre class="log" style="margin-top:8px">${esc((p.log || "").slice(-1200))}</pre></div></div>`; return; }
+  const rows = (p.results || []).slice(0, 3).map((r, i) => `<div class="pick">
+      <div><b>${i === 0 ? "Best match" : "#" + (i + 1)}</b><div class="muted" style="font-size:12px">${Math.round(r.likeness * 100)}% like you · ${Math.round(r.clarity * 100)}% clear</div></div>
+      <div class="muted" style="font-size:12.5px">“${esc(r.transcript.slice(0, 140))}${r.transcript.length > 140 ? "…" : ""}” (${r.seconds}s, at ${Math.floor(r.start_s / 60)}:${String(Math.floor(r.start_s % 60)).padStart(2, "0")})</div>
+      <div class="muted" style="font-size:12px">Your take</div><audio controls preload="none" src="/voice-pick/${r.clip}?v=${r.score}"></audio>
+      <div class="muted" style="font-size:12px">Clone test</div><audio controls preload="none" src="/voice-pick/${r.test}?v=${r.score}"></audio>
+      <div></div><div>${p.in_use === r.id ? `<span class="pill ok">✓ In use</span>` : `<button class="btn ${i === 0 ? "primary" : ""}" onclick="usePick('${r.id}')">Use this clip</button>`}</div>
+    </div>`).join("");
+  el.innerHTML = `<div style="margin-top:12px"><div class="sub">Listen to the clone tests and choose the one that sounds most like you. The score is a guide; your ears decide.</div>${rows}</div>`;
+}
+async function usePick(id) {
+  try { state.settings = await api("/api/voice-pick/use", { id }); state.pick = await api("/api/voice-pick"); toast("Voice updated. New videos use this clip."); renderSettings(); }
+  catch (e) { toast(e.message); }
+}
+
+const TOPICS = ["Sequences and series", "Exponents and logarithms", "Binomial theorem (incl. fractional and negative powers)", "Proof by induction, contradiction and counterexample",
+  "Complex numbers: Cartesian, polar and Euler form", "De Moivre's theorem and roots of complex numbers", "Systems of linear equations", "Counting principles, permutations and combinations", "Partial fractions",
+  "Functions: composite, inverse, transformations", "Polynomials: factor and remainder theorems, sums and products of roots", "Rational functions and asymptotes", "Inequalities and modulus functions",
+  "Trigonometric identities and equations", "Compound and double angle formulae", "Inverse trigonometric functions", "Vectors: lines in 3D", "Vectors: planes and intersections",
+  "Vectors: scalar and vector products, angles and distances", "Probability: conditional probability and Bayes' theorem", "Discrete and continuous random variables", "Binomial and normal distributions",
+  "Limits and differentiation from first principles", "Chain, product and quotient rules", "Implicit differentiation and related rates", "Optimisation", "Integration by substitution and by parts",
+  "Areas and volumes of revolution", "Kinematics", "Differential equations: separable, homogeneous, integrating factor", "Euler's method and slope fields", "Maclaurin series and L'Hôpital's rule"];
+
+function renderPlans() {
+  const s = state.settings || {};
+  $("#view").innerHTML = `
+    <h1>Plan a series</h1>
+    <div class="sub">Pick a topic and Claude plans a playlist of videos in teaching order, from the basics to exam-level questions. Then make the videos you want with one click.</div>
+    <div class="card">
+      <label for="ptopic">Topic</label><input type="text" id="ptopic" list="topics" placeholder="e.g. Vectors: lines in 3D, or type your own">
+      <datalist id="topics">${TOPICS.map(t => `<option value="${esc(t)}">`).join("")}</datalist>
+      <div class="row">
+        <div style="max-width:200px"><label for="pcount">Number of videos</label><input type="number" id="pcount" min="2" max="15" value="6"></div>
+        <div><label for="paud">Audience</label><input type="text" id="paud" value="${esc(s.audience || "")}"></div>
+      </div>
+      <div class="actions"><button class="btn primary" id="plan">Plan the series</button><span class="muted">Takes a minute or two.</span></div>
+    </div>
+    <div id="planlist"></div>`;
+  $("#plan").onclick = async () => {
+    try { await api("/api/plans", { topic: $("#ptopic").value, count: +$("#pcount").value, audience: $("#paud").value }); $("#ptopic").value = ""; await refreshPlans(); }
+    catch (e) { toast(e.message); }
+  };
+  drawPlans();
+}
+function drawPlans() {
+  const el = $("#planlist"); if (!el) return;
+  el.innerHTML = state.plans.map(p => `<div class="card">
+    <div class="row" style="align-items:center"><div style="flex:3"><h2 style="margin:0">${esc(p.series || p.topic)}</h2><div class="sub">${esc(p.topic)} · ${p.videos.length || p.count} videos</div></div>
+      <div style="flex:0;min-width:auto;display:flex;gap:8px">${p.status === "ready" && p.videos.some(v => !v.job) ? `<button class="btn primary" onclick="planMake('${p.id}','all')">Make all</button>` : ""}
+      <button class="btn danger" onclick="planDelete('${p.id}')">Delete</button></div></div>
+    ${p.status === "planning" ? `<div class="banner run"><span class="spin"></span><div class="msg">Claude is planning the series…</div></div>` : ""}
+    ${p.status === "failed" ? `<div class="banner bad"><div class="msg">The plan didn't work out. Delete it and try again (is Claude Code signed in?).</div></div>` : ""}
+    ${p.videos.map((v, i) => `<div class="plan-v"><div><b>${i + 1}. ${esc(v.title)}</b><div class="muted" style="font-size:12.5px">${esc(v.why)}</div>
+        <details style="margin-top:4px"><summary style="font-size:12.5px">Question</summary><pre style="margin-top:6px">${esc(v.question)}</pre></details></div>
+      ${v.job ? `<button class="btn" onclick="go('job:${v.job}')">Open video</button>` : `<button class="btn" onclick="planMake('${p.id}',${i})">Make this video</button>`}</div>`).join("")}
+  </div>`).join("");
+}
+async function refreshPlans() { try { state.plans = await api("/api/plans"); drawPlans(); } catch (e) { /* restarting */ } }
+async function planMake(id, index) { try { await api(`/api/plans/${id}/make`, { index }); toast(index === "all" ? "Videos created" : "Video created"); await refreshPlans(); await refresh(true); } catch (e) { toast(e.message); } }
+async function planDelete(id) { if (confirm("Delete this plan? Videos already made are kept.")) { await api(`/api/plans/${id}/delete`, {}); await refreshPlans(); } }
 
 function stepper(status) {
   const at = status === "failed" || status === "cancelled" ? -1 : (STEP_OF[status] ?? 0);
@@ -320,7 +459,12 @@ function renderJob() {
 
   let body = "";
   if (j.status === "script_ready") {
-    body = `<div class="grid2" style="margin-top:16px">
+    const c = j.check;
+    const verdict = c ? `<div class="card"><h2>Independent maths check</h2>
+      <div class="verdict ${esc(c.verdict)}"><b>${c.verdict === "agree" ? "✓ A second Claude solved it independently and agrees." : c.verdict === "disagree" ? "⚠ A second Claude got something different. Check before approving." : "? The check couldn't settle it. Read the solution carefully."}</b>
+        <div style="margin-top:4px">${esc(c.summary)}</div>${c.issues && c.issues.length ? `<ul>${c.issues.map(i => `<li>${esc(i)}</li>`).join("")}</ul>` : ""}</div>
+      <div class="actions"><button class="btn" onclick="act('check')">Check again</button>${c.issues && c.issues.length ? `<button class="btn" onclick="fixIssues()">Ask Claude to fix these</button>` : ""}</div></div>` : "";
+    body = verdict + `<div class="grid2" style="margin-top:16px">
       <div class="card"><h2>Outline & worked solution</h2><pre>${esc(j.outline || "(no outline)")}</pre></div>
       <div class="card"><h2>Narration</h2><textarea class="mono" id="narr" rows="22">${esc(j.narration)}</textarea>
         <div class="hint">One line per subtitle. <code>[pause 2.5]</code> adds thinking time after a line.</div>
@@ -339,20 +483,43 @@ function renderJob() {
         <span style="flex:1"></span><button class="btn primary" onclick="act('export')">${j.status === "done" ? "Re-export" : "Export for YouTube"}</button></div></div>`;
     }
     if (j.youtube) body += `<div class="card"><h2>YouTube title, description & chapters</h2><textarea class="mono" id="yt" rows="12" readonly>${esc(j.youtube)}</textarea>
-      <div class="actions"><button class="btn" onclick="navigator.clipboard.writeText($('#yt').value).then(() => toast('Copied'))">Copy</button></div></div>`;
+      <div class="actions"><button class="btn" onclick="navigator.clipboard.writeText($('#yt').value).then(() => toast('Copied'))">Copy</button></div>
+      ${j.titles && j.titles.length > 1 ? `<h2 style="margin-top:16px">Title options</h2><div class="sub">For YouTube Studio → the video → <b>Test & compare</b>: YouTube shows each to viewers and keeps the one that gets watched most.</div>
+        <ul class="titles" style="margin-top:8px">${j.titles.map(t => `<li><span>${esc(t)}</span><button class="btn" onclick="navigator.clipboard.writeText(${esc(JSON.stringify(t))}).then(() => toast('Copied'))">Copy</button></li>`).join("")}</ul>` : ""}</div>`;
     if (["review", "done"].includes(j.status)) {
-      const t = j.thumbnail || {}, img = v("thumbnail.png");
-      body += `<div class="card"><h2>Thumbnail</h2>
-        ${img ? `<img src="${img}" alt="YouTube thumbnail" style="width:100%;max-width:640px;border-radius:10px;display:block;border:1px solid var(--border)">` : `<div class="muted">Made automatically when you export, or make one now.</div>`}
+      const specs = j.thumbnails || [{}], names = ["thumbnail.png", "thumbnail-2.png", "thumbnail-3.png"];
+      const sel = Math.min(state.thumb, Math.max(specs.length, names.filter(n => v(n)).length) - 1, 2), t = specs[sel] || {}, img = v(names[sel]);
+      const tiles = names.map((n, i) => v(n) ? `<div class="tile ${i === sel ? "sel" : ""}" onclick="pickThumb(${i})"><img src="${v(n)}" alt="Thumbnail ${i + 1}"><div class="cap">${i + 1}. ${esc((specs[i] || {}).headline || "")}</div></div>` : "").join("");
+      body += `<div class="card"><h2>Thumbnails</h2>
+        ${tiles ? `<div class="sub">Three designs for YouTube's <b>Test & compare</b> (YouTube Studio → the video → Thumbnail → Test & compare). Click one to edit it.</div><div class="grid3">${tiles}</div>` : `<div class="muted">Made automatically when you export, or make them now.</div>`}
         <div class="row">
           <div><label for="th-h">Big title</label><input type="text" id="th-h" value="${esc(t.headline || "")}" placeholder="e.g. Shortest distance"></div>
           <div><label for="th-s">Second line</label><input type="text" id="th-s" value="${esc(t.subline || "")}" placeholder="e.g. between vector lines"></div>
           <div style="max-width:200px"><label for="th-f">Background frame (s)</label><input type="number" id="th-f" step="0.5" min="0" value="${t.frame_s ?? ""}" placeholder="auto"></div>
         </div>
         <div class="actions"><button class="btn" onclick="useFrame()" title="Use the moment the video above is paused at">Use current video frame</button>
-          <button class="btn primary" onclick="makeThumb()">${img ? "Update thumbnail" : "Make thumbnail"}</button>
-          ${img ? `<a class="btn" href="${img}" download="${j.id}-thumbnail.png">Download thumbnail</a>` : ""}</div>
+          <button class="btn primary" onclick="makeThumb()">${img ? `Update thumbnail ${sel + 1}` : "Make thumbnails"}</button>
+          ${img ? `<a class="btn" href="${img}" download="${j.id}-thumbnail-${sel + 1}.png">Download thumbnail ${sel + 1}</a>` : ""}</div>
         <div class="hint">Free and instant: runs on your Mac, no Claude usage. Logo, badge and colour are in ⚙ Settings.</div></div>`;
+    }
+    if (j.status === "done" && (v("short.mp4") || (j.short && j.short.start_s != null))) {
+      const sh = j.short || {}, mp4 = v("short.mp4");
+      body += `<div class="card"><h2>YouTube Short</h2>
+        ${mp4 ? `<video class="vertical" controls preload="metadata" src="${mp4}"></video>` : `<div class="muted">Not made yet.</div>`}
+        <div class="row">
+          <div><label for="sh-t">Hook title</label><input type="text" id="sh-t" value="${esc(sh.title || "")}"></div>
+          <div style="max-width:150px"><label for="sh-a">Start (s)</label><input type="number" id="sh-a" step="0.5" min="0" value="${sh.start_s ?? ""}"></div>
+          <div style="max-width:150px"><label for="sh-b">End (s)</label><input type="number" id="sh-b" step="0.5" min="0" value="${sh.end_s ?? ""}"></div>
+        </div>
+        <div class="actions"><button class="btn" onclick="shortFromPlayer()" title="Set the start to where the main video is paused">Start at current video time</button>
+          <button class="btn primary" onclick="makeShort()">${mp4 ? "Remake Short" : "Make Short"}</button>
+          ${mp4 ? `<a class="btn" href="${mp4}" download="${j.id}-short.mp4">Download Short</a>` : ""}</div>
+        <div class="hint">Upload it as a Short, add <b>#Shorts</b> to its title, and in YouTube Studio set its <b>Related video</b> to the full explainer so viewers can tap through. Shorts are cut to under 60 s at sentence boundaries.</div></div>`;
+    }
+    if (j.status === "done" && v("worksheet.pdf")) {
+      body += `<div class="card"><h2>Practice worksheet</h2><div class="sub">Similar questions with worked answers, branded with your logo.</div>
+        <div class="actions"><a class="btn primary" href="${v("worksheet.pdf")}" target="_blank">Open worksheet (PDF)</a><a class="btn" href="${v("worksheet.pdf")}" download="${j.id}-worksheet.pdf">Download</a></div>
+        <div class="hint">Upload it to Google Drive (Share → Anyone with the link) and add the link to the description, e.g. “📄 Free practice worksheet with answers: …”. It brings students back and grows the channel.</div></div>`;
     }
     if (["review", "done"].includes(j.status)) {
       const srt = v("subtitles.srt");
@@ -387,10 +554,21 @@ function renderJob() {
 
 async function revoice() { if (confirm("Record the narration again using your current voice settings (⚙), then re-time the animation?")) await act("revoice"); }
 function useFrame() { const p = $("#player"); if (p) { $("#th-f").value = p.currentTime.toFixed(1); state.thumbDirty = true; } }
+function pickThumb(i) { state.thumb = i; state.thumbDirty = false; renderJob(); }
 async function makeThumb() {
   const btn = event?.target; if (btn) btn.disabled = true;
-  await act("thumbnail", { headline: $("#th-h").value, subline: $("#th-s").value, frame_s: $("#th-f").value });
+  await act("thumbnail", { variant: state.thumb, headline: $("#th-h").value, subline: $("#th-s").value, frame_s: $("#th-f").value });
   state.thumbDirty = false; toast("Thumbnail updated");
+}
+function shortFromPlayer() { const p = $("#player"); if (p) { const a = +p.currentTime.toFixed(1); $("#sh-a").value = a; if (!(+$("#sh-b").value > a)) $("#sh-b").value = (a + 45).toFixed(1); } }
+async function makeShort() {
+  const btn = event?.target; if (btn) { btn.disabled = true; btn.textContent = "Making the Short…"; }
+  await act("short", { title: $("#sh-t").value, start_s: $("#sh-a").value, end_s: $("#sh-b").value });
+  toast("Short updated");
+}
+async function fixIssues() {
+  const c = state.job.check || {}; const notes = "An independent check of the maths raised these points. Fix anything that is genuinely wrong, and make the explanation clearer where it was misleading:\n- " + (c.issues || []).join("\n- ");
+  await act("rescript", { notes });
 }
 async function saveNarration() { await act("narration", { text: $("#narr").value }); state.dirty = false; toast("Narration saved"); }
 async function approve() { if (state.dirty) await saveNarration(); await act("approve"); }
@@ -406,6 +584,7 @@ function render() {
   renderJobs();
   if (state.view === "new") renderNew();
   else if (state.view === "settings") renderSettings();
+  else if (state.view === "plans") renderPlans();
   else renderJob();
 }
 
@@ -414,13 +593,18 @@ async function refresh(force = false) {
   try {
     state.jobs = await api("/api/jobs");
     renderJobs();
+    if (state.view === "plans" && (force || state.plans.some(p => p.status === "planning"))) await refreshPlans();
+    if (state.view === "settings" && (force || state.pick?.status === "running")) {
+      const before = JSON.stringify(state.pick); state.pick = await api("/api/voice-pick");
+      if (JSON.stringify(state.pick) !== before) renderPick();
+    }
     if (state.view.startsWith("job:")) {
       const j = await api(`/api/jobs/${state.view.slice(4)}`);
       const sig = JSON.stringify([j.status, j.updated, j.log.length, j.files, j.youtube.length]);
       if (force || sig !== lastSig || !state.job) {
         const statusChanged = state.job && state.job.status !== j.status;
         state.job = j; lastSig = sig;
-        const typing = ["notes", "narr", "th-h", "th-s", "th-f"].includes(document.activeElement?.id);
+        const typing = ["notes", "narr", "th-h", "th-s", "th-f", "sh-t", "sh-a", "sh-b"].includes(document.activeElement?.id);
         if (!typing || statusChanged || force) renderJob();
         else { const log = $("#log"); if (log) { const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 30; log.textContent = j.log; if (stick) log.scrollTop = log.scrollHeight; } }
       }

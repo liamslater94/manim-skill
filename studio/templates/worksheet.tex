@@ -1,0 +1,41 @@
+% Practice worksheet for a Manim Studio video. Fill in the three marked parts; keep the layout.
+\documentclass[11pt,a4paper]{article}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\setlength{\oddsidemargin}{-0.3in}\setlength{\evensidemargin}{-0.3in}
+\setlength{\textwidth}{7in}\setlength{\topmargin}{-0.7in}\setlength{\textheight}{10in}
+\setlength{\parindent}{0pt}\setlength{\parskip}{6pt}
+\pagestyle{plain}
+\definecolor{accent}{HTML}{ACCENTHEX}
+\definecolor{soft}{HTML}{5E6672}
+\definecolor{ink}{HTML}{0F1419}
+\newcommand{\header}{%
+  \begin{minipage}[c]{0.6\textwidth}
+    {\Large\bfseries CHANNELNAME}\\[2pt]
+    {\color{soft} BADGETEXT \quad$\cdot$\quad Practice worksheet}
+  \end{minipage}\hfill
+  \begin{minipage}[c]{0.3\textwidth}\raggedleft
+    LOGOGRAPHIC
+  \end{minipage}\par
+  {\color{accent}\rule{\textwidth}{2pt}}\par}
+\newcounter{q}
+\newcommand{\question}[2]{\stepcounter{q}\par\medskip
+  \textbf{\arabic{q}.}\ #2 \hfill{\color{soft}\small[#1]}\par}
+
+\begin{document}
+\header
+{\LARGE\bfseries %% TITLE: the video's topic, e.g. Systems of equations with a parameter
+TITLEHERE}\par
+{\color{soft} Watch the video first, then try these without looking. Answers are on the last page.}\par
+\medskip
+
+%% QUESTIONS: 5 or 6 questions like the one in the video, easiest first, the last one exam-style
+%% and harder. Use \question{marks}{text}; leave working space with \vspace{3cm} after each.
+
+\newpage
+\header
+{\Large\bfseries Answers}\par\medskip
+%% ANSWERS: short worked answers, one \textbf{n.} paragraph per question, with the key steps.
+
+\end{document}

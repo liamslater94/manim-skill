@@ -45,12 +45,14 @@ SETTINGS_FILE = STUDIO_DIR / "settings.json"
 UI_FILE = Path(__file__).resolve().parent / "studio.html"
 CLAUDE_TOOLS = "Bash Read Write Edit MultiEdit Glob Grep"
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,80}$")
-MAX_UPLOAD = 40 * 1024 * 1024
+MAX_UPLOAD = 300 * 1024 * 1024
 
 DEFAULT_SETTINGS = {
     "audience": "IB Mathematics: Analysis and Approaches HL students",
     "minutes": 4,
     "voice_sample": "",
+    "voice_text": "",
+    "voice_pick_used": "",
     "logo": "",
     "channel": "Mr. Liam IB Maths",
     "badge": "IB Maths AA HL",
@@ -60,6 +62,15 @@ DEFAULT_SETTINGS = {
     "greeting": "Hello, and welcome to Mr. Liam IB Maths!",
     "endscreen_seconds": 20.0,
     "signoff": "Thanks for watching! Pick one of these videos to keep learning.",
+    "hook_first": True,
+    "pause_try": True,
+    "maths_check": True,
+    "house_notes": "",
+    "music": "intro_outro",
+    "music_file": "",
+    "music_level": 30.0,
+    "shorts": True,
+    "worksheet": True,
     "speed": 1.1,
     "pause": 1.0,
     "guidance": 1.5,
@@ -68,12 +79,17 @@ DEFAULT_SETTINGS = {
 }
 
 # Status values. "queued_*" statuses are picked up by a worker; the rest are waiting on the user or done.
-LIGHT = {"queued_script": "scripting"}
+LIGHT = {"queued_script": "scripting", "queued_check": "checking"}
 HEAVY = {"queued_voice": "voicing", "queued_video": "rendering",
          "queued_revise": "revising", "queued_export": "exporting"}
 RUNNING = set(LIGHT.values()) | set(HEAVY.values())
-SERVED_FILES = {"video.mp4", "video_1080p.mp4", "voiceover.mp3", "thumbnail.png", "subtitles.srt", "question.png", "question.jpg",
-                "question.jpeg", "question.webp", "question.gif"}
+SERVED_FILES = {"video.mp4", "video_1080p.mp4", "voiceover.mp3", "thumbnail.png", "thumbnail-2.png", "thumbnail-3.png",
+                "subtitles.srt", "short.mp4", "worksheet.pdf", "question.png", "question.jpg", "question.jpeg",
+                "question.webp", "question.gif"}
+STUDIO_FILES = Path(__file__).resolve().parent
+PICK_DIR = STUDIO_DIR / "voice-pick"
+PLANS_DIR = STUDIO_DIR / "plans"
+MUSIC_EXTS = {".mp3", ".m4a", ".wav", ".aac", ".flac", ".ogg"}
 
 LOCK = threading.RLock()
 PROCS: dict[str, subprocess.Popen] = {}
@@ -167,7 +183,8 @@ def slugify(text: str) -> str:
     return slug
 
 
-def create_job(question: str, audience: str, minutes: float, image: dict | None) -> dict:
+def create_job(question: str, audience: str, minutes: float, image: dict | None, source: str = "",
+               series: str = "") -> dict:
     question = question.strip()
     if not question and not image:
         raise ValueError("Paste a question or topic (or an image of one).")
@@ -185,6 +202,7 @@ def create_job(question: str, audience: str, minutes: float, image: dict | None)
     title = question.splitlines()[0][:90] if question else "Question from image"
     job = {"id": job_id, "title": title, "question": question, "image": image_name,
            "audience": audience or s["audience"], "minutes": float(minutes or s["minutes"]),
+           "source": source.strip(), "series": series.strip(),
            "status": "queued_script", "stage_note": "", "error": "", "session": "",
            "created": time.time(), "history": []}
     log(job_id, f"Created: {title}")
@@ -231,7 +249,7 @@ def describe_event(event: dict) -> list[str]:
     return out
 
 
-def run_process(job_id: str, cmd: list[str], *, claude: bool) -> tuple[int, dict]:
+def run_process(job_id: str, cmd: list[str], *, claude: bool, record_session: bool = True) -> tuple[int, dict]:
     """Run a step, streaming its output into the job log. Returns (exit code, final Claude result event)."""
     d = job_dir(job_id)
     shown = [Path(cmd[0]).name] + [c if len(c) < 90 and "\n" not in c else "…" for c in cmd[1:]]
@@ -256,7 +274,7 @@ def run_process(job_id: str, cmd: list[str], *, claude: bool) -> tuple[int, dict
             except ValueError:
                 log(job_id, line)
                 continue
-            if event.get("session_id"):
+            if event.get("session_id") and record_session:
                 update_job(job_id, session=event["session_id"])
             if event.get("type") == "result":
                 result = event
@@ -289,10 +307,39 @@ def voice_command(narration: str = "narration.txt", out_audio: str = "voiceover.
     sample = s.get("voice_sample")
     if sample and Path(sample).exists():
         cmd += ["--clone", sample, "--qa", "--speed", f"{s['speed']:g}", "--clone-guidance", f"{s['guidance']:g}"]
+        if s.get("voice_text"):
+            cmd += ["--clone-text", s["voice_text"]]
         for item in re.split(r"[,\s]+", s.get("say", "").strip()):
             if "=" in item:
                 cmd += ["--say", item]
     return cmd
+
+
+def script_rules(s: dict) -> str:
+    """Opening, watch-along and ending rules for narration.txt, from the settings."""
+    greeting = s.get("greeting", "").strip()
+    hook = ("one or two short sentences (under 25 words) that make a student want to keep watching: the "
+            "surprising result, the trap most students fall into, or what they'll be able to do by the end. It "
+            "is about the question, not the channel.")
+    rules = []
+    if s.get("hook_first"):
+        rules.append(f"- Line 1 is the hook: {hook}")
+        if greeting:
+            rules.append(f"- Line 2 must be exactly: {greeting}\n  (It plays over the channel logo.) Start the "
+                         "explanation on line 3.")
+    elif greeting:
+        rules.append(f"- The first line must be exactly: {greeting}\n  (It plays over the channel logo.) Start the "
+                     "explanation on the second line.")
+    if s.get("pause_try"):
+        rules.append("- Include one or two 'pause and try' moments at natural points: a line inviting the viewer to "
+                     "pause the video and try the next step themselves (say exactly what to try), ending with "
+                     "[pause 4]. The next line reveals the answer.")
+    rules.append("- Point out the common mistakes and where marks are lost ('Be careful here…'), as an experienced "
+                 "IB examiner would.")
+    if s.get("endscreen_seconds", 0) > 0:
+        rules.append("- End with the summary. Don't invite viewers to watch other videos or subscribe: the app adds "
+                     "an end screen with a spoken sign-off.")
+    return "\n".join(rules) + "\n"
 
 
 def step_script(job: dict) -> None:
@@ -305,15 +352,16 @@ def step_script(job: dict) -> None:
     else:
         image = (f"The question is also attached as the image {job['image']} in the current directory — "
                  "read it carefully; it is the authoritative statement of the question.\n") if job.get("image") else ""
+        source = f"Source: {job['source']}\n" if job.get("source") else ""
         prompt = skill_preamble(job) + f"""
 This step is Phase 1 (Narration) only. The question or topic is in question.md:
 
 <question>
 {job['question']}
 </question>
-{image}
+{source}{image}
 Write narration.txt for a video of about {job['minutes']:g} minutes, in the skill's SubtitleSpec format:
-{{greeting}}- Teach it the way an excellent teacher would at this level: motivate, explain each step, connect to the
+{script_rules(load_settings())}- Teach it the way an excellent teacher would at this level: motivate, explain each step, connect to the
   geometry or intuition, and finish with a short summary. Be mathematically exact.
 - End a line with [pause 2] after every worked step or key result so viewers can take it in; other pauses
   are timed automatically from how each line ends.
@@ -325,24 +373,63 @@ Write narration.txt for a video of about {job['minutes']:g} minutes, in the skil
   ("Now look.", "So,", "Here's the key idea:"). A line may end with a comma when the thought continues on
   the next line.
 - Keep lines to one or two sentences each.
-{{endscreen}}
+
 Also write outline.md: the scene-by-scene plan (Scene class names and what appears on screen, matching the
 narration lines) followed by a complete worked solution, so the teacher can check the mathematics.
 
 Do not generate audio, write animation code or render. Stop once narration.txt and outline.md are written.
 """
         session = ""
-        greeting = load_settings().get("greeting", "").strip()
-        prompt = prompt.replace("{endscreen}", (
-            "- End with the summary. Don't invite viewers to watch other videos or subscribe: the app adds an "
-            "end screen with a spoken sign-off.\n") if load_settings().get("endscreen_seconds", 0) > 0 else "")
-        prompt = prompt.replace("{greeting}", (
-            f"- The first line must be exactly: {greeting}\n  (It plays over the channel logo.) Start the "
-            "explanation on the second line.\n") if greeting else "")
     code, _ = run_process(job["id"], claude_cmd(prompt, session), claude=True)
     if code or not (job_dir(job["id"]) / "narration.txt").exists():
         raise RuntimeError("Script step did not produce narration.txt")
+    if load_settings().get("maths_check"):
+        run_check(read_job(job["id"]))
     update_job(job["id"], status="script_ready", script_feedback="")
+
+
+CHECK_PROMPT = """You are an independent senior IB examiner checking a teacher's worked solution before it is
+turned into a video for {audience}.
+1. Read question.md{image}. Solve the question yourself from scratch, carefully and completely, and write
+   your solution to check-solution.md. Do this BEFORE you open outline.md or narration.txt.
+2. Then read outline.md (the teacher's worked solution) and narration.txt (what will be said). Compare the
+   final answers, every case and condition, the validity of each step, the arithmetic, and anything in the
+   narration that is wrong, misleading or too loose for this level.
+3. Write check.json:
+   {{"verdict": "agree" | "disagree" | "unsure", "summary": "one or two sentences",
+     "issues": ["each specific problem, and where it is (outline step or narration line)"]}}
+   "agree" means the final answers match and nothing is mathematically wrong (minor wording points can
+   still be listed as issues). "disagree" means something is wrong. "unsure" means you couldn't settle it.
+Do not edit question.md, outline.md or narration.txt.
+"""
+
+
+def run_check(job: dict) -> dict:
+    """A fresh Claude session solves the question independently and compares it with the script."""
+    d = job_dir(job["id"])
+    (d / "check.json").unlink(missing_ok=True)
+    log(job["id"], "Independent maths check: solving the question from scratch…")
+    image = f" (and the image {job['image']}, the authoritative statement)" if job.get("image") else ""
+    prompt = CHECK_PROMPT.format(audience=job["audience"], image=image)
+    try:
+        run_process(job["id"], claude_cmd(prompt), claude=True, record_session=False)
+        check = json.loads((d / "check.json").read_text())
+        check = {"verdict": str(check.get("verdict", "unsure")).lower(), "summary": str(check.get("summary", "")),
+                 "issues": [str(i) for i in check.get("issues", []) if str(i).strip()]}
+    except (OSError, ValueError, RuntimeError, AttributeError) as e:
+        check = {"verdict": "unsure", "summary": f"The check didn't finish ({e}). Read the solution carefully.",
+                 "issues": []}
+    if check["verdict"] not in ("agree", "disagree", "unsure"):
+        check["verdict"] = "unsure"
+    check["checked"] = time.time()
+    (d / "check.json").write_text(json.dumps(check, indent=2))
+    log(job["id"], f"Maths check: {check['verdict'].upper()}. {check['summary']}")
+    return check
+
+
+def step_check(job: dict) -> None:
+    run_check(job)
+    update_job(job["id"], status="script_ready")
 
 
 def step_voice(job: dict) -> None:
@@ -359,19 +446,81 @@ ENDCARD_RULE = ("\nEnding: finish on the summary. Do not draw end cards, 'more v
 
 
 def opening_instructions() -> str:
-    """How the first scene presents the channel: the logo (copied into the session) during the greeting."""
+    """How the first scene opens: a hook on screen at once, then the channel logo during the greeting."""
     s = load_settings()
     greeting = s.get("greeting", "").strip()
-    if not greeting:
-        return ""
-    return (
-        "\nOpening: the first narration line is the channel greeting. For that whole line, show the channel "
-        "logo in Scene 1 — channel-logo.png in the current directory (ImageMobject), centred, about a third of "
-        "the frame width, fading or growing in at the start and clearly visible throughout the greeting; then "
-        "shrink it to a small corner badge or fade it out as the topic begins. Keep it unobstructed and "
-        "undistorted.\n" if (s.get("logo") and Path(s["logo"]).exists()) else
-        f"\nOpening: the first narration line is the channel greeting. While it plays, show the channel name "
-        f"\"{s.get('channel', '')}\" as a large, clean title card in Scene 1, then move into the topic.\n")
+    hook = bool(s.get("hook_first"))
+    parts = []
+    if hook:
+        parts.append("Opening: the first narration line is a hook. Have something worth watching on screen from the "
+                     "very first frame (the question itself, or the most striking visual of the solution), never a "
+                     "blank or title-only screen.")
+    if greeting:
+        which = "second" if hook else "first"
+        if s.get("logo") and Path(s["logo"]).exists():
+            parts.append(f"The {which} narration line is the channel greeting: clear the screen and call "
+                         "logo_open(self, <that line's duration minus the time used to clear>) from house_style "
+                         "(it shows channel-logo.png, centred and undistorted), then fade the logo out as the "
+                         "explanation begins.")
+        else:
+            parts.append(f"The {which} narration line is the channel greeting: show title_card(\"{s.get('channel', '')}\") "
+                         "while it plays, then move into the topic.")
+    return ("\n" + " ".join(parts) + "\n") if parts else ""
+
+
+def house_rules() -> str:
+    s = load_settings()
+    rules = """
+House style: house_style.py is in the current directory; read it first. Start script.py with
+`from manim import *` then `from house_style import *`, and use its palette, sizes and helpers so every video
+on the channel looks the same and is easy to watch along to:
+- Colour-code variables with mt() / paint(): x, y, z and the parameters keep their VAR_COLORS all video.
+- Keep everything above SAFE_BOTTOM: captions and the YouTube player bar cover the bottom of the frame.
+- Once the question has been shown in full, keep a QuestionPin of it in the top-left corner while working
+  (hide it only when a full-screen visual needs the room), so students never have to scroll back.
+- step_chip() names the current step in the top-right corner (e.g. "STEP 2 · Row reduce").
+- Show what is being said: whenever a line refers to a term, row, equation or part of a diagram, spotlight()
+  or emphasise() it during that line, and build each step up as it is spoken rather than all at once.
+- result_box() around each final answer; callout("…", WARN) when the narration warns about a common mistake.
+"""
+    if s.get("pause_try"):
+        rules += ("- For a line that invites the viewer to pause and try (it ends with a pause of about 4 s), show "
+                  "the task on screen and call pause_and_try(self, <that pause>) for the pause part of the segment.\n")
+    if s.get("house_notes", "").strip():
+        rules += f"- The teacher's own style notes: {s['house_notes'].strip()}\n"
+    return rules
+
+
+def latex_escape(text: str) -> str:
+    return re.sub(r"([&%$#_{}])", r"\\\1", text).replace("~", r"\textasciitilde{}").replace("^", r"\^{}")
+
+
+def prepare_assets(job_id: str) -> None:
+    """Copy the house style, logo and worksheet template into the video folder."""
+    d, s = job_dir(job_id), load_settings()
+    shutil.copy(STUDIO_FILES / "house_style.py", d / "house_style.py")
+    (d / "house_style.json").write_text(json.dumps({"accent": s.get("accent") or "#FFD23F",
+                                                    "channel": s.get("channel", "")}))
+    logo = s.get("logo")
+    has_logo = False
+    if logo and Path(logo).exists():
+        try:   # Manim and LaTeX read PNG best; normalise whatever was uploaded
+            from PIL import Image
+            Image.open(logo).convert("RGBA").save(d / "channel-logo.png")
+            has_logo = True
+        except Exception as e:  # noqa: BLE001
+            log(job_id, f"Couldn't prepare the logo: {e}")
+    tex = (STUDIO_FILES / "templates" / "worksheet.tex").read_text()
+    tex = (tex.replace("ACCENTHEX", (s.get("accent") or "#FFD23F").lstrip("#").upper())
+              .replace("CHANNELNAME", latex_escape(s.get("channel", "")))
+              .replace("BADGETEXT", latex_escape(s.get("badge", "")))
+              .replace("LOGOGRAPHIC", r"\colorbox{ink}{\includegraphics[height=1.1cm]{channel-logo.png}}"
+                       if has_logo else ""))
+    (d / "worksheet-template.tex").write_text(tex)
+
+
+ENDCARD_RULE = ("\nEnding: finish on the summary. Do not draw end cards, 'more videos' boxes, subscribe buttons or "
+                "placeholder thumbnails; the app appends a clean end screen for YouTube's end screen elements.\n")
 
 
 def step_video(job: dict) -> None:
@@ -383,20 +532,14 @@ that line's pause), lint it, render every scene, write concat.txt, and mux video
 Then check it: extract frames at several points in every scene and look at them; fix overlapping or
 clipped text, unreadable labels and anything mathematically wrong, re-render those scenes and re-mux.
 Finish when video.mp4 is complete and verified with ffprobe.
-""" + opening_instructions() + ENDCARD_RULE
+""" + house_rules() + opening_instructions() + ENDCARD_RULE
     if job.get("retime") and (job_dir(job["id"]) / "script.py").exists():
         prompt = """The narration was re-recorded with the same wording: voiceover.mp3 and timestamps.json are new.
 Do NOT run tts-generate.py or edit narration.txt. Update script.py so every segment's duration matches the new
 timestamps.json (keep the visuals), lint it, re-render every scene, rewrite concat.txt if needed and re-mux
 video.mp4 with the new voiceover.mp3. Verify it with ffprobe and check a few frames. Do not launch the viewer.
 """
-    logo = load_settings().get("logo")
-    if logo and Path(logo).exists():
-        try:   # Manim reads PNG best; normalise whatever was uploaded
-            from PIL import Image
-            Image.open(logo).convert("RGBA").save(job_dir(job["id"]) / "channel-logo.png")
-        except Exception as e:  # noqa: BLE001
-            log(job["id"], f"Couldn't prepare the logo: {e}")
+    prepare_assets(job["id"])
     (job_dir(job["id"]) / "video.mp4").unlink(missing_ok=True)
     code, _ = run_process(job["id"], claude_cmd(prompt, job.get("session", "")), claude=True)
     if code or not (job_dir(job["id"]) / "video.mp4").exists():
@@ -407,6 +550,7 @@ video.mp4 with the new voiceover.mp3. Verify it with ffprobe and check a few fra
 
 def step_revise(job: dict) -> None:
     voice = " ".join(f'"{c}"' if " " in c else c for c in voice_command())
+    prepare_assets(job["id"])
     prompt = f"""The teacher watched video.mp4 and gives this feedback (timestamps refer to video.mp4):
 
 {job.get('video_feedback', '')}
@@ -415,7 +559,8 @@ Apply it, following the skill's Phase 6 iteration rules: for a referenced moment
 look at it before changing code. If narration must change, edit narration.txt, then regenerate the voice
 with exactly this command (unchanged lines are cached):
 {voice}
-and update script.py to the new timestamps.json. {ENDCARD_RULE.strip()} Re-render only the affected scenes, update concat.txt if
+and update script.py to the new timestamps.json. Keep to the house style in house_style.py.
+{ENDCARD_RULE.strip()} Re-render only the affected scenes, update concat.txt if
 needed, re-mux video.mp4, and verify it with ffprobe. Do not launch the viewer.
 """
     code, _ = run_process(job["id"], claude_cmd(prompt, job.get("session", "")), claude=True)
@@ -424,42 +569,125 @@ needed, re-mux video.mp4, and verify it with ffprobe. Do not launch the viewer.
     update_job(job["id"], status="review", video_feedback="")
 
 
-def step_export(job: dict) -> None:
-    d = job_dir(job["id"])
-    (d / "video_1080p.mp4").unlink(missing_ok=True)
-    prompt = """The teacher approved video.mp4. Make the final YouTube version:
-1. Render every scene in script.py at 1920x1080 and 30 fps (set config.pixel_width/pixel_height/frame_rate
+def export_prompt(job: dict) -> str:
+    s = load_settings()
+    badge = s.get("badge", "").strip()
+    seo = ("Titles are what students type into YouTube search: lead with the topic or skill in plain words "
+           "(e.g. \"Shortest distance between skew lines\")" + (f", then \" | {badge}\"" if badge else "") + ". ")
+    if job.get("source"):
+        seo += f"Include the exam reference \"{job['source']}\" in at least one title and in the description. "
+    seo += "At most 70 characters; never promise something the video doesn't deliver."
+    desc_extra = (f" Then a line \"Question: {job['source']}\"." if job.get("source") else "") + (
+        f" Then a line \"Part of the {job['series']} series.\"" if job.get("series") else "")
+    steps = [
+        """Render every scene in script.py at 1920x1080 and 30 fps (set config.pixel_width/pixel_height/frame_rate
    accordingly, keeping frame_width/frame_height and all timing unchanged), concatenate in the same order and
    mux with voiceover.mp3 into video_1080p.mp4. Check its duration matches video.mp4 within 0.5 s and look at
-   two or three frames. Then restore script.py's original render settings.
-2. Write youtube.md with: a clear, searchable title (max 70 characters) on the first line, a blank line, then
-   a 2–4 sentence description for students (what the question is, which methods are used, the level), then a
-   line of 5–10 comma-separated tags. Do not write chapter timestamps — they are added automatically.
-3. Write thumbnail.json for the YouTube thumbnail, as {"headline": ..., "subline": ..., "frame_s": ...}:
-   - headline: the topic in 2–4 punchy words, e.g. "Shortest distance"; subline: 2–5 words completing it,
-     e.g. "between vector lines". Together they read as the video's title.
-   - frame_s: the time in seconds of the most visually striking frame — a colourful diagram, graph or 3D view
-     rather than a page of equations. Extract a few candidate frames and look at them before choosing.
-Do not change the narration or voice.
-"""
-    code, _ = run_process(job["id"], claude_cmd(prompt, job.get("session", "")), claude=True)
+   two or three frames. Then restore script.py's original render settings.""",
+        f"""Write youtube.md: the best title on the first line, a blank line, then a 2–4 sentence description for
+   students (what the question is, which methods are used, the level).{desc_extra} Then a line of 8–12
+   comma-separated tags (topic, method, "IB Maths", the course and level). No chapter timestamps (added
+   automatically). {seo}""",
+        """Write titles.json: ["…", "…", "…"], three genuinely different titles for YouTube's Test & compare (one
+   leading with the skill or topic, one with the question or exam reference, one with the payoff or the trap),
+   all following the title rules above. The first is youtube.md's title.""",
+        """Write thumbnail.json: {"variants": [{"headline": …, "subline": …, "frame_s": …}, … three of them]}, three
+   different thumbnails for Test & compare, each with its own angle and its own background frame:
+   - headline: 2–4 punchy words, e.g. "Shortest distance"; subline: 2–5 words completing it, e.g. "between
+     vector lines". Together they read as a title.
+   - frame_s: the time of a visually striking frame (a colourful diagram, graph or 3D view rather than a page of
+     equations). Extract candidate frames and look at them before choosing.""",
+    ]
+    if s.get("shorts"):
+        steps.append("""Write shorts.json: {"start_s": …, "end_s": …, "title": "…"}: the best self-contained 30–55 second
+   stretch of video.mp4 for a YouTube Short (a neat trick, a trap, or the key step) that makes sense on its own.
+   Start at the beginning of a narration line and end at the end of one (use timestamps.json); never include the
+   greeting. title: a 3–8 word hook shown above the clip.""")
+    if s.get("worksheet"):
+        steps.append("""Make the practice worksheet: copy worksheet-template.tex to worksheet.tex and fill in the marked
+   parts: the title, 5–6 practice questions like this one (easiest first, the last one exam-style and harder),
+   and short worked answers. Solve every question yourself to be sure the answers are right. Compile with
+   `pdflatex -interaction=nonstopmode worksheet.tex` (twice) and fix any errors until worksheet.pdf exists.""")
+    numbered = "\n".join(f"{i}. {text}" for i, text in enumerate(steps, 1))
+    return f"The teacher approved video.mp4. Make the final YouTube version:\n{numbered}\nDo not change the narration or voice.\n"
+
+
+def step_export(job: dict) -> None:
+    d = job_dir(job["id"])
+    for name in ("video_1080p.mp4", "titles.json", "shorts.json", "short.mp4", "worksheet.pdf"):
+        (d / name).unlink(missing_ok=True)
+    prepare_assets(job["id"])
+    code, _ = run_process(job["id"], claude_cmd(export_prompt(job), job.get("session", "")), claude=True)
     if code or not (d / "video_1080p.mp4").exists():
         raise RuntimeError("Export did not produce video_1080p.mp4")
     if load_settings().get("endscreen_seconds", 0) > 0:
         add_endscreen(job["id"])
     else:
         update_job(job["id"], endscreen_start=None, endscreen_signoff="")
+    try:
+        master_audio(job["id"])
+    except Exception as e:  # noqa: BLE001 — the unmastered video is still usable
+        log(job["id"], f"Audio mastering skipped: {e}")
     chapters = chapter_lines(d)
     text = (d / "youtube.md").read_text().rstrip() if (d / "youtube.md").exists() else job["title"]
     if chapters:
         text += "\n\nChapters\n" + "\n".join(chapters)
     (d / "youtube.md").write_text(text + "\n")
-    for name, make in (("Thumbnail", make_thumbnail), ("Subtitles", make_subtitles)):
+    extras = [("Thumbnails", make_thumbnail), ("Subtitles", make_subtitles)]
+    if load_settings().get("shorts") and (d / "shorts.json").exists():
+        extras.append(("Short", make_short))
+    for name, make in extras:
         try:
             make(job["id"])
         except Exception as e:  # noqa: BLE001 — an extra must not fail the export
             log(job["id"], f"{name} not made: {e}")
+    if load_settings().get("worksheet") and not (d / "worksheet.pdf").exists():
+        log(job["id"], "Worksheet not made (worksheet.pdf missing; see the log above).")
     update_job(job["id"], status="done")
+
+
+def music_track() -> Path | None:
+    s = load_settings()
+    if s.get("music", "off") == "off":
+        return None
+    if s.get("music_file") and Path(s["music_file"]).exists():
+        return Path(s["music_file"])
+    from audio import builtin_pad
+    return builtin_pad(STUDIO_DIR / "music-builtin.wav")
+
+
+def greeting_end(d: Path) -> float | None:
+    """When the greeting line finishes (timestamps.json), so intro music can fade out after it."""
+    greeting = re.sub(r"\W+", " ", load_settings().get("greeting", "")).strip().lower()
+    try:
+        subs = json.loads((d / "timestamps.json").read_text())["subtitles"]
+    except (OSError, ValueError, KeyError):
+        return None
+    for sub in subs[:3]:
+        if greeting and re.sub(r"\W+", " ", sub["text"]).strip().lower() == greeting:
+            return float(sub["end_s"])
+    return None
+
+
+def master_audio(job_id: str) -> None:
+    """Voice polish, music bed (intro and end screen, or throughout) and YouTube loudness on video_1080p.mp4."""
+    from audio import duration, master
+    d, s, job = job_dir(job_id), load_settings(), read_job(job_id)
+    src = d / "video_1080p.mp4"
+    music, regions = music_track(), None
+    if music and s.get("music") == "intro_outro":
+        regions = []
+        if (end := greeting_end(d)) is not None:
+            regions.append((0.0, end + 1.0))
+        if job.get("endscreen_start") is not None:
+            regions.append((job["endscreen_start"] - 0.5, duration(src) + 5))
+        if not regions:
+            music = None
+    log(job_id, "Mastering audio" + (" with music" if music else "") + " (YouTube loudness, -14 LUFS)…")
+    tmp = d / "video_1080p_mastered.mp4"
+    stats = master(src, tmp, music, regions, float(s.get("music_level", 30)))
+    tmp.replace(src)
+    log(job_id, f"Audio mastered: {stats['input_i']} LUFS → -14 LUFS.")
 
 
 def add_endscreen(job_id: str) -> None:
@@ -499,36 +727,85 @@ def make_subtitles(job_id: str) -> Path:
     return out
 
 
-def thumbnail_spec(job_id: str) -> dict:
+THUMB_NAMES = ["thumbnail.png", "thumbnail-2.png", "thumbnail-3.png"]
+
+
+def thumbnail_specs(job_id: str) -> list[dict]:
+    """Up to three thumbnail designs (for YouTube's Test & compare) from thumbnail.json."""
     d = job_dir(job_id)
-    spec = {"headline": read_job(job_id).get("title", "")[:60], "subline": "", "frame_s": None}
+    default = {"headline": read_job(job_id).get("title", "")[:60], "subline": "", "frame_s": None}
     try:
-        spec.update(json.loads((d / "thumbnail.json").read_text()))
+        data = json.loads((d / "thumbnail.json").read_text())
     except (OSError, ValueError):
-        pass
-    return spec
+        data = {}
+    variants = data.get("variants") if isinstance(data, dict) and "variants" in data else [data]
+    specs = [{**default, **v} for v in variants if isinstance(v, dict) and v][:len(THUMB_NAMES)]
+    return specs or [default]
 
 
-def make_thumbnail(job_id: str, **changes) -> Path:
-    """Render thumbnail.png from thumbnail.json (+ changes) and the branding in settings. Local and free."""
+def make_thumbnail(job_id: str, variant: int | None = None, **changes) -> list[Path]:
+    """Render the thumbnails (or one variant, with `changes`) from thumbnail.json and the branding. Local and free."""
     d = job_dir(job_id)
     video = d / "video_1080p.mp4" if (d / "video_1080p.mp4").exists() else d / "video.mp4"
     if not video.exists():
         raise ValueError("Make the video first.")
-    spec = {**thumbnail_spec(job_id), **{k: v for k, v in changes.items() if v is not None}}
-    if spec.get("frame_s") in (None, ""):
-        out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
-                              str(video)], capture_output=True, text=True).stdout
-        spec["frame_s"] = round(float(out or 0) * 0.4, 1)
-    spec["frame_s"] = float(spec["frame_s"])
-    (d / "thumbnail.json").write_text(json.dumps(spec, indent=2))
+    specs = thumbnail_specs(job_id)
+    if variant is not None:
+        variant = max(0, min(int(variant), len(THUMB_NAMES) - 1))
+        while len(specs) <= variant:
+            specs.append({**specs[0], "frame_s": None})
+        specs[variant] = {**specs[variant], **{k: v for k, v in changes.items() if v is not None}}
+    total = None
     s = load_settings()
     from thumbnail import render
-    render(video, d / "thumbnail.png", spec["headline"], spec.get("subline", ""), spec["frame_s"],
-           logo=s.get("logo") or None, channel=s.get("channel", ""), badge=s.get("badge", ""),
-           accent=s.get("accent") or "#FFD23F")
-    log(job_id, f"Thumbnail made: \"{spec['headline']}\" / \"{spec.get('subline', '')}\" at {spec['frame_s']:g}s.")
-    return d / "thumbnail.png"
+    made = []
+    for i, spec in enumerate(specs):
+        if variant is not None and i != variant and (d / THUMB_NAMES[i]).exists():
+            continue
+        if spec.get("frame_s") in (None, ""):
+            if total is None:
+                out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of",
+                                      "csv=p=0", str(video)], capture_output=True, text=True).stdout
+                total = float(out or 0)
+            spec["frame_s"] = round(total * (0.4 + 0.15 * i), 1)
+        spec["frame_s"] = float(spec["frame_s"])
+        render(video, d / THUMB_NAMES[i], spec["headline"], spec.get("subline", ""), spec["frame_s"],
+               logo=s.get("logo") or None, channel=s.get("channel", ""), badge=s.get("badge", ""),
+               accent=s.get("accent") or "#FFD23F")
+        made.append(d / THUMB_NAMES[i])
+        log(job_id, f"Thumbnail {i + 1}: \"{spec['headline']}\" / \"{spec.get('subline', '')}\" at {spec['frame_s']:g}s.")
+    for extra in THUMB_NAMES[len(specs):]:
+        (d / extra).unlink(missing_ok=True)
+    (d / "thumbnail.json").write_text(json.dumps({"variants": specs}, indent=2))
+    return made
+
+
+def short_spec(job_id: str) -> dict:
+    try:
+        return json.loads((job_dir(job_id) / "shorts.json").read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def make_short(job_id: str, **changes) -> Path:
+    """short.mp4: a vertical YouTube Short cut from the final video, with big captions. Local and free."""
+    d, s = job_dir(job_id), load_settings()
+    video = d / "video_1080p.mp4"
+    if not video.exists():
+        raise ValueError("Export the video first.")
+    spec = {**short_spec(job_id), **{k: v for k, v in changes.items() if v not in (None, "")}}
+    if "start_s" not in spec or "end_s" not in spec:
+        raise ValueError("Choose where the Short starts and ends.")
+    if not (d / "subtitles.srt").exists():
+        make_subtitles(job_id)
+    from shorts import make
+    log(job_id, f"Making the Short from {float(spec['start_s']):.1f}s to {float(spec['end_s']):.1f}s…")
+    info = make(video, d / "short.mp4", float(spec["start_s"]), float(spec["end_s"]),
+                spec.get("title") or read_job(job_id)["title"], d / "subtitles.srt", s.get("logo") or None,
+                s.get("channel", ""), s.get("accent") or "#FFD23F")
+    (d / "shorts.json").write_text(json.dumps(info, indent=2))
+    log(job_id, f"Short made: {info['seconds']:g}s, \"{info['title']}\".")
+    return d / "short.mp4"
 
 
 def chapter_lines(d: Path) -> list[str]:
@@ -566,7 +843,7 @@ def chapter_lines(d: Path) -> list[str]:
     return [f"{fmt(start)} {name}" for start, _, name in merged]
 
 
-STEPS = {"scripting": step_script, "voicing": step_voice, "rendering": step_video,
+STEPS = {"scripting": step_script, "checking": step_check, "voicing": step_voice, "rendering": step_video,
          "revising": step_revise, "exporting": step_export}
 
 
@@ -662,11 +939,21 @@ def act(job_id: str, action: str, body: dict) -> dict:
             need("review", "done")
             frame = body.get("frame_s")
             try:
-                make_thumbnail(job_id, headline=body.get("headline"), subline=body.get("subline"),
-                               frame_s=float(frame) if frame not in (None, "") else None)
+                make_thumbnail(job_id, int(body.get("variant") or 0), headline=body.get("headline"),
+                               subline=body.get("subline"), frame_s=float(frame) if frame not in (None, "") else None)
             except Exception as e:  # noqa: BLE001 — shown to the user
                 raise ValueError(f"Couldn't make the thumbnail: {e}") from e
             return read_job(job_id)
+        if action == "short":
+            need("done")
+            try:
+                make_short(job_id, start_s=body.get("start_s"), end_s=body.get("end_s"), title=body.get("title"))
+            except Exception as e:  # noqa: BLE001 — shown to the user
+                raise ValueError(f"Couldn't make the Short: {e}") from e
+            return read_job(job_id)
+        if action == "check":
+            need("script_ready")
+            return update_job(job_id, status="queued_check", queued_at=time.time())
         if action == "subtitles":
             need("review", "done")
             try:
@@ -687,9 +974,15 @@ def job_detail(job_id: str) -> dict:
     d = job_dir(job_id)
     read = lambda name: (d / name).read_text(errors="replace") if (d / name).exists() else ""  # noqa: E731
     files = {name: (d / name).stat().st_mtime_ns for name in SERVED_FILES if (d / name).exists()}
+    def load(name, default):
+        try:
+            return json.loads(read(name)) if read(name) else default
+        except ValueError:
+            return default
     return {**job, "narration": read("narration.txt"), "outline": read("outline.md"),
             "youtube": read("youtube.md"), "log": tail(d / "studio.log"), "files": files, "folder": str(d),
-            "thumbnail": thumbnail_spec(job_id)}
+            "thumbnails": thumbnail_specs(job_id), "titles": load("titles.json", []),
+            "short": load("shorts.json", {}), "check": load("check.json", None)}
 
 
 def health() -> dict:
@@ -703,6 +996,167 @@ def health() -> dict:
         "sherpa_onnx": subprocess.run([sys.executable, "-c", "import sherpa_onnx"], capture_output=True).returncode == 0,
     }
     return {"checks": checks, "home": str(HOME), "python": sys.executable}
+
+
+# ------------------------------------------------------------- voice picker --
+def start_voice_pick(recording: Path) -> dict:
+    """Test clips from a long recording in the background; results land in PICK_DIR."""
+    if voice_pick_state().get("status") == "running":
+        raise ValueError("Already testing a recording; wait for it to finish.")
+    PICK_DIR.mkdir(parents=True, exist_ok=True)
+    for old in PICK_DIR.glob("*"):
+        if old.is_file():
+            old.unlink()
+    s = load_settings()
+    cmd = [sys.executable, str(TOOLS_DIR / "voice-pick.py"), str(recording), "--out-dir", str(PICK_DIR),
+           "--speed", f"{s['speed']:g}", "--clone-guidance", f"{s['guidance']:g}"]
+    for item in re.split(r"[,\s]+", s.get("say", "").strip()):
+        if "=" in item:
+            cmd += ["--say", item]
+    (PICK_DIR / "status.json").write_text(json.dumps({"status": "running", "started": time.time()}))
+
+    def run():
+        with open(PICK_DIR / "log.txt", "w") as out:
+            code = subprocess.run(cmd, stdout=out, stderr=subprocess.STDOUT, env=tool_env(), cwd=PICK_DIR).returncode
+        ok = code == 0 and (PICK_DIR / "results.json").exists()
+        (PICK_DIR / "status.json").write_text(json.dumps({"status": "ready" if ok else "failed",
+                                                          "finished": time.time()}))
+    threading.Thread(target=run, daemon=True).start()
+    return voice_pick_state()
+
+
+def voice_pick_state() -> dict:
+    try:
+        state = json.loads((PICK_DIR / "status.json").read_text())
+    except (OSError, ValueError):
+        return {"status": "none"}
+    lines = [l for l in tail(PICK_DIR / "log.txt", 400).splitlines()
+             if l.strip() and "ConvertTokensToIds" not in l and not re.fullmatch(r"\s*-?\d+\.\d+\s*", l)]
+    progress = [l for l in lines if l.startswith("PROGRESS ")]
+    if progress:
+        done, total = progress[-1].split()[1].split("/")
+        state["progress"] = [int(done), int(total)]
+    state["log"] = "\n".join(l for l in lines if not l.startswith("PROGRESS "))[-3000:]
+    if state.get("status") == "running" and time.time() - state.get("started", 0) > 3 * 3600:
+        state["status"] = "failed"
+    try:
+        state["results"] = json.loads((PICK_DIR / "results.json").read_text())["results"][:5]
+    except (OSError, ValueError, KeyError):
+        state["results"] = []
+    state["in_use"] = load_settings().get("voice_pick_used", "")
+    return state
+
+
+def use_voice_pick(clip_id: str) -> dict:
+    results = {r["id"]: r for r in voice_pick_state().get("results", [])}
+    if clip_id not in results:
+        raise ValueError("That clip isn't in the latest results.")
+    for old in STUDIO_DIR.glob("voice-sample.*"):
+        old.unlink()
+    dest = STUDIO_DIR / "voice-sample.wav"
+    shutil.copy(PICK_DIR / results[clip_id]["clip"], dest)
+    return save_settings({"voice_sample": str(dest), "voice_text": results[clip_id]["transcript"],
+                          "voice_pick_used": clip_id})
+
+
+# ------------------------------------------------------------- series plans --
+SYLLABUS_PROMPT = """Plan a YouTube series of {count} explainer videos for {audience} on this topic:
+
+{topic}
+
+Each video is one worked question (or a short concept explainer) of about {minutes:g} minutes, made by the
+channel's video app. Order them from the foundations to full exam-level questions, so a student can work
+through the playlist in order, and cover the syllabus points a student needs for this topic. Write
+original questions in the style of IB exam questions (with all the numbers, so each can be solved) rather
+than copying past-paper text.
+
+Write series.json in the current directory:
+{{"series": "short playlist name, e.g. Vectors: lines and planes",
+  "videos": [{{"title": "short video title", "question": "the full question text",
+              "why": "one line: what the student learns"}}, …]}}
+Write only series.json.
+"""
+
+
+def plan_list() -> list[dict]:
+    plans = []
+    for p in PLANS_DIR.glob("*/plan.json"):
+        try:
+            plans.append(json.loads(p.read_text()))
+        except ValueError:
+            pass
+    return sorted(plans, key=lambda p: p.get("created", 0), reverse=True)
+
+
+def plan_path(plan_id: str) -> Path:
+    if not SLUG_RE.match(plan_id or ""):
+        raise KeyError(plan_id)
+    path = PLANS_DIR / plan_id / "plan.json"
+    if not path.exists():
+        raise KeyError(plan_id)
+    return path
+
+
+def create_plan(topic: str, count: int, audience: str) -> dict:
+    topic = topic.strip()
+    if not topic:
+        raise ValueError("Choose or type a topic first.")
+    s = load_settings()
+    count = max(2, min(15, int(count or 6)))
+    words = re.findall(r"[a-z0-9]+", topic.lower())[:6] or ["series"]
+    base = "-".join(words)[:48].strip("-") or "series"
+    plan_id, n = base, 2
+    while (PLANS_DIR / plan_id).exists():
+        plan_id, n = f"{base}-{n}", n + 1
+    d = PLANS_DIR / plan_id
+    d.mkdir(parents=True)
+    plan = {"id": plan_id, "topic": topic, "count": count, "audience": audience or s["audience"],
+            "status": "planning", "created": time.time(), "series": "", "videos": []}
+    (d / "plan.json").write_text(json.dumps(plan, indent=2))
+    prompt = SYLLABUS_PROMPT.format(count=count, audience=plan["audience"], topic=topic,
+                                    minutes=float(s.get("minutes", 4)))
+
+    def run():
+        with open(d / "plan.log", "w") as out:
+            try:
+                subprocess.run(claude_cmd(prompt), cwd=d, stdout=out, stderr=subprocess.STDOUT, env=tool_env())
+            except FileNotFoundError:
+                out.write("Claude Code isn't installed or isn't on PATH.\n")
+        current = json.loads((d / "plan.json").read_text())
+        try:
+            data = json.loads((d / "series.json").read_text())
+            current["series"] = str(data.get("series") or topic)
+            current["videos"] = [{"title": str(v.get("title", "")), "question": str(v.get("question", "")),
+                                  "why": str(v.get("why", "")), "job": ""}
+                                 for v in data.get("videos", []) if v.get("question")]
+            current["status"] = "ready" if current["videos"] else "failed"
+        except (OSError, ValueError, AttributeError):
+            current["status"] = "failed"
+        (d / "plan.json").write_text(json.dumps(current, indent=2))
+    threading.Thread(target=run, daemon=True).start()
+    return plan
+
+
+def plan_make(plan_id: str, index) -> dict:
+    """Create videos from a plan: one (index) or every one not yet made ("all")."""
+    with LOCK:
+        path = plan_path(plan_id)
+        plan = json.loads(path.read_text())
+        picks = range(len(plan["videos"])) if index == "all" else [int(index)]
+        for i in picks:
+            v = plan["videos"][i]
+            if v.get("job") and (HOME / v["job"]).exists():
+                continue
+            job = create_job(v["question"], plan["audience"], 0, None, series=plan.get("series", ""))
+            update_job(job["id"], title=v.get("title") or job["title"])
+            v["job"] = job["id"]
+        path.write_text(json.dumps(plan, indent=2))
+        return plan
+
+
+def plan_delete(plan_id: str) -> dict:
+    shutil.rmtree(plan_path(plan_id).parent)
+    return {"deleted": plan_id}
 
 
 # ------------------------------------------------------------------ server --
@@ -748,13 +1202,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_file(Path(logo))
             elif path == "/api/health":
                 self.send_json(health())
+            elif path == "/api/voice-pick":
+                self.send_json(voice_pick_state())
+            elif m := re.match(r"^/voice-pick/(clip-\d+(?:-test)?\.(?:wav|mp3))$", path):
+                self.send_file(PICK_DIR / m.group(1))
+            elif path == "/api/music":
+                track = music_track() if load_settings().get("music") != "off" else None
+                if not track:
+                    raise KeyError(path)
+                self.send_file(track)
+            elif path == "/voice-script":
+                self.send_file(STUDIO_FILES / "voice-recording-script.md")
+            elif path == "/api/plans":
+                self.send_json(plan_list())
             elif m := re.match(r"^/files/([^/]+)/([^/]+)$", path):
                 if m.group(2) not in SERVED_FILES:
                     raise KeyError(path)
                 self.send_file(job_dir(m.group(1)) / m.group(2))
             else:
                 self.send_error(404)
-        except KeyError:
+        except (KeyError, FileNotFoundError):
             self.send_error(404)
         except (BrokenPipeError, ConnectionResetError):
             pass
@@ -765,7 +1232,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/api/jobs":
                 body = json.loads(self.read_body() or b"{}")
                 self.send_json(create_job(body.get("question", ""), body.get("audience", ""),
-                                          body.get("minutes", 0), body.get("image")))
+                                          body.get("minutes", 0), body.get("image"), body.get("source", ""),
+                                          body.get("series", "")))
             elif m := re.match(r"^/api/jobs/([^/]+)/(\w+)$", path):
                 self.send_json(act(m.group(1), m.group(2), json.loads(self.read_body() or b"{}")))
             elif path == "/api/settings":
@@ -796,7 +1264,40 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     old.unlink()
                 dest = STUDIO_DIR / f"voice-sample{ext}"
                 dest.write_bytes(self.read_body())
-                self.send_json(save_settings({"voice_sample": str(dest)}))
+                self.send_json(save_settings({"voice_sample": str(dest), "voice_text": "", "voice_pick_used": ""}))
+            elif path == "/api/voice-recording":
+                ext = Path(self.headers.get("X-Filename", "voice.m4a")).suffix.lower() or ".m4a"
+                if ext not in {".m4a", ".mp3", ".wav", ".aac", ".flac", ".ogg", ".mp4", ".mov", ".webm"}:
+                    raise ValueError("Use an audio file (m4a, mp3, wav, …).")
+                STUDIO_DIR.mkdir(parents=True, exist_ok=True)
+                for old in STUDIO_DIR.glob("voice-recording.*"):
+                    old.unlink()
+                dest = STUDIO_DIR / f"voice-recording{ext}"
+                dest.write_bytes(self.read_body())
+                self.send_json(start_voice_pick(dest))
+            elif path == "/api/voice-pick/use":
+                self.send_json(use_voice_pick(json.loads(self.read_body() or b"{}").get("id", "")))
+            elif path == "/api/music":
+                ext = Path(self.headers.get("X-Filename", "music.mp3")).suffix.lower() or ".mp3"
+                if ext not in MUSIC_EXTS:
+                    raise ValueError("Use an audio file (mp3, m4a, wav, …).")
+                STUDIO_DIR.mkdir(parents=True, exist_ok=True)
+                for old in STUDIO_DIR.glob("music.*"):
+                    old.unlink()
+                dest = STUDIO_DIR / f"music{ext}"
+                dest.write_bytes(self.read_body())
+                self.send_json(save_settings({"music_file": str(dest)}))
+            elif path == "/api/music/clear":
+                for old in STUDIO_DIR.glob("music.*"):
+                    old.unlink()
+                self.send_json(save_settings({"music_file": ""}))
+            elif path == "/api/plans":
+                body = json.loads(self.read_body() or b"{}")
+                self.send_json(create_plan(body.get("topic", ""), body.get("count", 6), body.get("audience", "")))
+            elif m := re.match(r"^/api/plans/([^/]+)/make$", path):
+                self.send_json(plan_make(m.group(1), json.loads(self.read_body() or b"{}").get("index", "all")))
+            elif m := re.match(r"^/api/plans/([^/]+)/delete$", path):
+                self.send_json(plan_delete(m.group(1)))
             else:
                 self.send_error(404)
         except KeyError:
@@ -806,7 +1307,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def send_file(self, path: Path):
         size = path.stat().st_size
-        ctype = {".mp4": "video/mp4", ".mp3": "audio/mpeg", ".srt": "text/plain; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg",
+        ctype = {".mp4": "video/mp4", ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4",
+                 ".aac": "audio/aac", ".flac": "audio/flac", ".ogg": "audio/ogg", ".pdf": "application/pdf",
+                 ".md": "text/plain; charset=utf-8", ".srt": "text/plain; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg",
                  ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}.get(path.suffix, "application/octet-stream")
         start, end = 0, size - 1
         if (rng := self.headers.get("Range")) and (m := re.match(r"bytes=(\d+)-(\d*)", rng)):

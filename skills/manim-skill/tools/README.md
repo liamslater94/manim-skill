@@ -31,6 +31,18 @@ Renders `ui.html` (which lives next to this script). Prints
 | `T` | Insert timestamp into feedback |
 | `F` | Fullscreen |
 
+## voice-pick.py
+
+Finds the best cloning sample in a longer recording: splits it into 5–12 s clips at natural
+pauses, clones a test line from each, and ranks them by how much the clone sounds like the speaker
+(speaker-embedding similarity, WeSpeaker model from the sherpa-onnx releases) and how clearly it
+speaks (Whisper). Writes `results.json` plus each clip and its clone test for listening.
+
+```bash
+python3 voice-pick.py my-recording.m4a --out-dir picks --say z=zed
+python3 tts-generate.py --clone picks/clip-03.wav --clone-text "…transcript from results.json…" --qa
+```
+
 ## tts-generate.py
 
 Reads the SubtitleSpec from `narration.txt`, generates per-line audio locally with
