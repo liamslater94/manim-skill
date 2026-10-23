@@ -10,7 +10,11 @@ manim skill end to end:
    points out common mistakes. A second Claude then solves the question **independently** and
    flags anything that disagrees (with a button to have the first fix it). You check the maths,
    edit the narration directly or ask for changes, then approve.
-2. **Voice.** You read the approved script aloud from a built-in **teleprompter**, in one take,
+2. **Storyboard.** Claude sketches what will be on screen at each line (`storyboard.py`, one still
+   per line, in the house style). You can ask for anything to be drawn differently before you
+   record, and the animation later follows it. Turn it off under ⚙ Settings → Narration.
+3. **Voice.** You read the approved script aloud from a built-in **teleprompter**, with the
+   storyboard still for the current line shown beside it, in one take,
    with your Mac's microphone: tap <kbd>Space</kbd> as you start each new line (it lights up the
    next one), or <kbd>R</kbd> to read a line again. The app cleans the take (rumble, background
    noise, key clicks, even level), splits it into lines at your taps, makes sure every
@@ -19,13 +23,13 @@ manim skill end to end:
    (`studio/recording.py`). You can also upload a recording made elsewhere. Record your end-screen
    sign-off once under ⚙ Settings → End screen. Prefer a cloned voice? Choose it under ⚙ Settings →
    Narration (`tools/tts-generate.py --clone`).
-3. **Video.** Claude Code writes the Manim animation timed to your narration, renders it,
+4. **Video.** Claude Code writes the Manim animation timed to your narration, renders it,
    checks frames for layout problems and fixes them. Every video uses the channel's house style
    (`studio/house_style.py`): one colour per variable, the question pinned in the top-left corner,
    the current step labelled, what's being said highlighted on screen, answers boxed, and a
    countdown ring for "pause and try" moments. You watch it in the app and leave
    timestamped notes; Claude applies them and re-renders only what changed.
-4. **Export.** A 1080p MP4 plus a search-friendly YouTube title (with the exam reference if you
+5. **Export.** A 1080p MP4 plus a search-friendly YouTube title (with the exam reference if you
    gave one), description, tags and chapter timestamps, **three title options** and **three
    thumbnails** for YouTube's Test & compare. Each 1280×720 thumbnail has a punchy two-part
    title on a striking frame, and

@@ -51,6 +51,7 @@ DEFAULT_SETTINGS = {
     "audience": "IB Mathematics: Analysis and Approaches HL students",
     "minutes": 4,
     "voice_mode": "record",
+    "storyboard": True,
     "voice_sample": "",
     "voice_text": "",
     "voice_pick_used": "",
@@ -80,7 +81,8 @@ DEFAULT_SETTINGS = {
 }
 
 # Status values. "queued_*" statuses are picked up by a worker; the rest are waiting on the user or done.
-LIGHT = {"queued_script": "scripting", "queued_check": "checking", "queued_takes": "processing"}
+LIGHT = {"queued_script": "scripting", "queued_check": "checking", "queued_takes": "processing",
+         "queued_board": "boarding"}
 HEAVY = {"queued_voice": "voicing", "queued_video": "rendering",
          "queued_revise": "revising", "queued_export": "exporting"}
 RUNNING = set(LIGHT.values()) | set(HEAVY.values())
@@ -449,6 +451,54 @@ def step_check(job: dict) -> None:
     update_job(job["id"], status="script_ready")
 
 
+BOARD_PROMPT = """narration.txt is approved. Before the teacher records it, make a storyboard so they can see
+what will be on screen while they read each line aloud.
+
+Write storyboard.py in the current directory with one Scene class per narration line, named Board_001,
+Board_002, … (three digits, in narration order; there are {n} lines). Each one shows the screen as it looks at
+the END of that line: exactly what the final animation will show, laid out as it will be in the video
+(config.frame_width = 16, config.frame_height = 9). Build the mobjects and self.add() them: no animations or
+waits. Share helper functions between the scenes, and let lines that keep the same picture reuse it.
+Then render every scene as a still with `manim -s -ql -a storyboard.py < /dev/null` (-a renders every scene without asking; never -p). Look at several of the images
+in media/images/storyboard/ and fix anything cluttered, overlapping, off-screen or unreadable, then re-render.
+This storyboard is the plan the animation will follow later, so make it good. Do not write script.py, render
+any video, or edit narration.txt or outline.md.
+"""
+
+
+def step_board(job: dict) -> None:
+    """Storyboard stills (one per narration line) for the teleprompter, rendered from storyboard.py."""
+    d = job_dir(job["id"])
+    prepare_assets(job["id"])
+    n = len(entries_detail(d))
+    feedback = job.get("board_feedback", "")
+    if feedback and (d / "storyboard.py").exists():
+        prompt = (f"The teacher looked at the storyboard (storyboard.py) and asks for these changes:\n\n{feedback}\n\n"
+                  "Update storyboard.py (same rules as before: one still per narration line, named Board_001…), "
+                  "re-render it with `manim -s -ql -a storyboard.py < /dev/null`, and check the images. Do not write script.py, "
+                  "render video, or edit narration.txt.")
+    else:
+        prompt = skill_preamble(job) + BOARD_PROMPT.format(n=n) + house_rules() + opening_instructions()
+    shutil.rmtree(d / "media" / "images" / "storyboard", ignore_errors=True)
+    try:
+        code, _ = run_process(job["id"], claude_cmd(prompt, job.get("session", "")), claude=True)
+    except RuntimeError as e:
+        code = 1
+        log(job["id"], str(e))
+    board = d / "board"
+    shutil.rmtree(board, ignore_errors=True)
+    board.mkdir()
+    found = 0
+    for png in sorted((d / "media" / "images").rglob("Board_*.png")) if (d / "media" / "images").exists() else []:
+        m = re.search(r"Board_(\d+)", png.name)
+        if m and 1 <= int(m.group(1)) <= n:
+            shutil.copy(png, board / f"line-{int(m.group(1)):03d}.png")
+            found += 1
+    log(job["id"], f"Storyboard: {found} of {n} stills." if found else
+        f"No storyboard stills were made{' (Claude reported an error)' if code else ''}; you can still record.")
+    update_job(job["id"], status="record", board_feedback="")
+
+
 def step_takes(job: dict) -> None:
     """Split the teacher's one-take recording into lines (recording.py)."""
     from recording import process
@@ -531,6 +581,15 @@ on the channel looks the same and is easy to watch along to:
     return rules
 
 
+def board_rule(job: dict) -> str:
+    d = job_dir(job["id"])
+    if not (d / "storyboard.py").exists() or not any((d / "board").glob("line-*.png")):
+        return ""
+    return ("\nStoryboard: the teacher recorded the narration while looking at the storyboard (storyboard.py; "
+            "board/line-NNN.png is the screen at the end of narration line NNN). Follow it closely and reuse its "
+            "code and layout, so the animation shows what the teacher was describing at each moment.\n")
+
+
 def latex_escape(text: str) -> str:
     return re.sub(r"([&%$#_{}])", r"\\\1", text).replace("~", r"\textasciitilde{}").replace("^", r"\^{}")
 
@@ -572,7 +631,7 @@ that line's pause), lint it, render every scene, write concat.txt, and mux video
 Then check it: extract frames at several points in every scene and look at them; fix overlapping or
 clipped text, unreadable labels and anything mathematically wrong, re-render those scenes and re-mux.
 Finish when video.mp4 is complete and verified with ffprobe.
-""" + house_rules() + opening_instructions() + ENDCARD_RULE
+""" + house_rules() + opening_instructions() + ENDCARD_RULE + board_rule(job)
     if job.get("retime") and (job_dir(job["id"]) / "script.py").exists():
         prompt = """The narration was re-recorded: voiceover.mp3 and timestamps.json are new (same lines, though a
 line's wording may have been corrected). Do NOT run tts-generate.py or edit narration.txt. Update script.py so
@@ -910,7 +969,7 @@ def chapter_lines(d: Path) -> list[str]:
     return [f"{fmt(start)} {name}" for start, _, name in merged]
 
 
-STEPS = {"scripting": step_script, "checking": step_check, "processing": step_takes, "voicing": step_voice, "rendering": step_video,
+STEPS = {"scripting": step_script, "checking": step_check, "processing": step_takes, "boarding": step_board, "voicing": step_voice, "rendering": step_video,
          "revising": step_revise, "exporting": step_export}
 
 
@@ -970,6 +1029,8 @@ def act(job_id: str, action: str, body: dict) -> dict:
         if action == "approve":
             need("script_ready")
             if load_settings().get("voice_mode", "record") == "record":
+                if load_settings().get("storyboard", True):
+                    return update_job(job_id, status="queued_board", voice_mode="record", queued_at=time.time())
                 return update_job(job_id, status="record", voice_mode="record")
             return update_job(job_id, status="queued_voice", voice_mode="clone", queued_at=time.time())
         if action == "use_recording":
@@ -977,6 +1038,9 @@ def act(job_id: str, action: str, body: dict) -> dict:
             retime = (d / "script.py").exists() and (d / "video.mp4").exists()
             log(job_id, "Using your recording" + (": re-timing the animation to it." if retime else "."))
             return update_job(job_id, status="queued_video", retime=retime, queued_at=time.time())
+        if action == "reboard":
+            need("record")
+            return update_job(job_id, status="queued_board", board_feedback=body.get("notes", ""), queued_at=time.time())
         if action == "record_again":
             need("takes_review", "record", "review", "done")
             return update_job(job_id, status="record")
@@ -1067,7 +1131,9 @@ def job_detail(job_id: str) -> dict:
             "youtube": read("youtube.md"), "log": tail(d / "studio.log"), "files": files, "folder": str(d),
             "thumbnails": thumbnail_specs(job_id), "titles": load("titles.json", []),
             "short": load("shorts.json", {}), "check": load("check.json", None),
-            "takes": takes_detail(d), "entries": entries_detail(d)}
+            "takes": takes_detail(d), "entries": entries_detail(d),
+            "board": {p.stem: p.stat().st_mtime_ns for p in sorted((d / "board").glob("line-*.png"))}
+            if (d / "board").exists() else {}}
 
 
 def takes_detail(d: Path) -> list[dict]:
@@ -1381,6 +1447,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_file(STUDIO_FILES / "voice-recording-script.md")
             elif path == "/api/plans":
                 self.send_json(plan_list())
+            elif m := re.match(r"^/files/([^/]+)/board/(line-\d{3}\.png)$", path):
+                self.send_file(job_dir(m.group(1)) / "board" / m.group(2))
             elif m := re.match(r"^/files/([^/]+)/takes/(line-\d{3}\.wav)$", path):
                 self.send_file(job_dir(m.group(1)) / "takes" / m.group(2))
             elif path == "/api/signoff":
