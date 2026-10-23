@@ -138,10 +138,23 @@
   .take.flag { background: var(--warn-muted); border-radius: 8px; padding: 10px 8px; }
   .liverec { grid-column: 1 / 5; padding: 12px; border-radius: 10px; background: var(--bg-soft); }
   .liverec .big { font-size: 22px; font-weight: 600; margin: 6px 0 10px; }
+  .booth { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 14px; margin-top: 14px; align-items: start; }
+  .booth .prompter { margin-top: 0; max-height: 62vh; padding: 16vh 22px; }
+  .still { background: #0b0f14; border-radius: 12px; overflow: hidden; position: sticky; top: 0; }
+  .still img { width: 100%; display: block; aspect-ratio: 16 / 9; object-fit: contain; }
+  .still .cap { font-size: 12.5px; color: #b6b6b3; padding: 8px 12px; }
+  .pl { cursor: default; }
+  .idle .pl { cursor: pointer; }
+  .boards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-top: 10px; }
+  .boards figure { margin: 0; background: var(--bg-soft); border-radius: 8px; overflow: hidden; cursor: pointer; }
+  .boards img { width: 100%; display: block; aspect-ratio: 16 / 9; object-fit: contain; background: #0b0f14; }
+  .boards figcaption { font-size: 11.5px; padding: 5px 7px; color: var(--text-secondary); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .liverec img { width: 100%; max-width: 420px; border-radius: 8px; display: block; margin: 6px 0; }
   @media (max-width: 860px) {
     .grid3 { grid-template-columns: 1fr; }
     .take { grid-template-columns: 24px 1fr; } .take > :nth-child(n+3) { grid-column: 1 / 3; }
     .pl.cur { font-size: 24px; }
+    .booth { grid-template-columns: 1fr; } .still { position: static; }
     .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; min-height: 100vh; }
     aside { border-right: none; border-bottom: 1px solid var(--border); max-height: 40vh; }
     .grid2 { grid-template-columns: 1fr; }
@@ -170,6 +183,7 @@ const STATUS = {
   queued_script: ["Waiting to write script", "run"], scripting: ["Writing script", "run"],
   script_ready: ["Check the script", "wait"],
   queued_check: ["Waiting to check the maths", "run"], checking: ["Checking the maths", "run"],
+  queued_board: ["Waiting to make storyboard", "run"], boarding: ["Making the storyboard", "run"],
   record: ["Record your narration", "wait"], queued_takes: ["Waiting to process recording", "run"],
   processing: ["Processing your recording", "run"], takes_review: ["Check your recording", "wait"],
   queued_voice: ["Waiting to voice", "run"], voicing: ["Recording voice", "run"],
@@ -180,11 +194,12 @@ const STATUS = {
   done: ["Ready for YouTube", "ok"], failed: ["Failed", "bad"], cancelled: ["Cancelled", "bad"],
 };
 const STEP_OF = { queued_script: 0, scripting: 0, script_ready: 0, queued_check: 0, checking: 0,
-  record: 1, queued_takes: 1, processing: 1, takes_review: 1, queued_voice: 1, voicing: 1,
+  record: 1, queued_takes: 1, processing: 1, takes_review: 1, queued_board: 1, boarding: 1, queued_voice: 1, voicing: 1,
   queued_video: 2, rendering: 2, review: 2, queued_revise: 2, revising: 2, queued_export: 3, exporting: 3, done: 4 };
 const RUN_TEXT = {
   scripting: "Claude is writing the narration and a worked solution, then a second Claude checks the maths independently.",
   checking: "A second Claude is solving the question from scratch and comparing it with the script.",
+  boarding: "Claude is sketching what will be on screen for each line, so you can see it while you record. Usually a few minutes.",
   processing: "Cleaning up your recording, splitting it into lines and checking each one against the script.",
   voicing: "Narrating in your voice and checking every take. This takes a few minutes.",
   rendering: "Claude is writing and rendering the animation, then checking frames. Usually 10–25 minutes.",
@@ -286,6 +301,7 @@ function renderSettings() {
     <div class="card">
       <h2>Narration</h2>
       <label class="check"><input type="radio" name="vmode" value="record" ${s.voice_mode !== "clone" ? "checked" : ""}><span>Record it myself <span class="pill ok">recommended</span><span class="hint" style="display:block;margin-top:2px">After you approve the script, the app shows it as a teleprompter and records you reading it in one take with your Mac's microphone. Your real voice, pace and emphasis; the animation is timed to it.</span></span></label>
+      <label class="check" style="margin-left:26px"><input type="checkbox" id="sboard" ${s.storyboard !== false ? "checked" : ""}><span>Show a storyboard while I record<span class="hint" style="display:block;margin-top:2px">Claude first sketches what will be on screen for each line, and the teleprompter shows it beside the line you're reading. The animation then follows it. Adds a few minutes before recording.</span></span></label>
       <label class="check"><input type="radio" name="vmode" value="clone" ${s.voice_mode === "clone" ? "checked" : ""}><span>Cloned voice<span class="hint" style="display:block;margin-top:2px">The app reads the script in a clone of your voice. No recording needed, but it sounds less natural.</span></span></label>
     </div>
     <div class="card">
@@ -388,7 +404,7 @@ function renderSettings() {
   upload("#mfile", "/api/music", async (d) => { state.settings = d; toast("Music saved"); renderSettings(); });
   upload("#longrec", "/api/voice-recording", async (d) => { state.pick = d; toast("Testing your takes…"); renderPick(); });
   $("#save").onclick = async () => {
-    try { state.settings = await api("/api/settings", { voice_mode: document.querySelector('input[name="vmode"]:checked')?.value || "record", say: $("#say").value, speed: +$("#speed").value, pause: +$("#pause").value,
+    try { state.settings = await api("/api/settings", { voice_mode: document.querySelector('input[name="vmode"]:checked')?.value || "record", storyboard: $("#sboard").checked, say: $("#say").value, speed: +$("#speed").value, pause: +$("#pause").value,
       guidance: +$("#guid").value, channel: $("#chan").value, badge: $("#badge").value, greeting: $("#greet").value,
       endscreen_seconds: Math.min(20, +$("#endsec").value || 0), signoff: $("#signoff").value, natural_pauses: $("#natural").checked,
       house_style: $("#hstyle").checked, pause_try: $("#ptry").checked, maths_check: $("#mcheck").checked, house_notes: $("#notes-style").value,
@@ -710,13 +726,46 @@ function recorderCard(j) {
       <div class="meter" title="Speak at your normal volume: the bar should reach about two thirds"><div></div></div>
       <div style="flex:0;min-width:auto"><button class="btn" id="mictest" onclick="micOpen()">Test microphone</button></div>
     </div>
-    <div class="prompter" id="prompter">${lines.map((e, k) => `<div class="pl" data-k="${k}">${esc(e.text)}${e.hint ? `<span class="pz">pause</span>` : ""}</div>`).join("")}</div>
+    ${hasBoard(j) ? `<div class="booth idle" id="booth">
+      <div class="still"><img id="stillimg" src="${boardSrc(j, 0)}" alt="What's on screen"><div class="cap" id="stillcap">On screen at the end of line 1</div></div>
+      <div class="prompter" id="prompter">${prompterLines(lines)}</div></div>`
+    : `<div class="prompter" id="prompter">${prompterLines(lines)}</div>`}
     <div class="actions" id="recbar"></div>
+    ${hasBoard(j) ? `<details style="margin-top:14px"><summary style="font-size:13px">Storyboard: every line (${Object.keys(j.board).length} stills)</summary>
+      <div class="boards">${lines.map((e, k) => boardSrc(j, k, true) ? `<figure onclick="previewLine(${k})"><img loading="lazy" src="${boardSrc(j, k, true)}" alt="Line ${k + 1}"><figcaption>${k + 1}. ${esc(e.text)}</figcaption></figure>` : "").join("")}</div>
+      <label for="bnotes">Want something drawn differently before you record?</label><textarea id="bnotes" rows="2" placeholder="e.g. Line 6: show the three planes as a 3D sketch, not equations. Make the matrix bigger."></textarea>
+      <div class="actions"><button class="btn" onclick="act('reboard', {notes: $('#bnotes').value})">Redraw the storyboard</button></div></details>` : ""}
     <details style="margin-top:12px"><summary style="font-size:13px">Or upload a recording you made elsewhere</summary>
       <div class="sub" style="margin-top:6px">Read the whole script in one go with a short pause between lines; the app finds the lines itself.</div>
       <div class="actions"><input type="file" id="recfile" accept="audio/*,video/*" hidden><button class="btn" onclick="$('#recfile').click()">Upload recording</button></div></details>
   </div>`;
 }
+const prompterLines = (lines) => lines.map((e, k) => `<div class="pl" data-k="${k}" onclick="previewLine(${k})">${esc(e.text)}${e.hint ? `<span class="pz">pause</span>` : ""}</div>`).join("");
+const hasBoard = (j) => j.board && Object.keys(j.board).length > 0;
+function boardSrc(j, k, exact = false) {
+  // the still for line k, or the latest earlier one (a line may keep the previous picture)
+  for (let i = k; i >= (exact ? k : 0); i--) {
+    const key = "line-" + String(i + 1).padStart(3, "0");
+    if (j.board && j.board[key]) return `/files/${j.id}/board/${key}.png?v=${j.board[key]}`;
+  }
+  return "";
+}
+function showStill(k) {
+  const img = $("#stillimg"); if (!img) return;
+  const src = boardSrc(state.job, k); if (src && img.getAttribute("src") !== src) img.src = src;
+  const cap = $("#stillcap"); if (cap) cap.textContent = `On screen at the end of line ${k + 1} of ${(state.job.entries || []).length}`;
+}
+function previewLine(k) {
+  if (REC.active || REC.busy) return;
+  document.querySelectorAll("#prompter .pl").forEach(el => el.classList.toggle("cur", +el.dataset.k === k));
+  showStill(k);
+  const cur = document.querySelector(`#prompter .pl[data-k="${k}"]`), box = $("#prompter");
+  if (cur && box) box.scrollTop = cur.offsetTop - box.clientHeight * 0.35;
+  $("#booth")?.scrollIntoView({ block: "nearest" });
+}
+// preload every still so they switch instantly while recording
+function preloadStills() { const j = state.job; if (hasBoard(j)) Object.keys(j.board).forEach(k => { const im = new Image(); im.src = `/files/${j.id}/board/${k}.png?v=${j.board[k]}`; }); }
+
 function drawRecBar() {
   const bar = $("#recbar"); if (!bar) return;
   if (REC.busy) { bar.innerHTML = `<span class="spin"></span> <span>Uploading your recording…</span>`; return; }
@@ -732,6 +781,8 @@ function showLine() {
   document.querySelectorAll("#prompter .pl").forEach(el => { const k = +el.dataset.k; el.classList.toggle("cur", k === REC.i); el.classList.toggle("done", k < REC.i); });
   const cur = document.querySelector(`#prompter .pl[data-k="${REC.i}"]`), box = $("#prompter");
   if (cur && box) box.scrollTop = cur.offsetTop - box.clientHeight * 0.35;
+  showStill(REC.i);
+  $("#booth")?.classList.toggle("idle", !REC.active);
   drawRecBar();
 }
 async function beginTake() {
@@ -739,6 +790,7 @@ async function beginTake() {
   REC.busy = true; const box = $("#prompter");
   for (const c of [3, 2, 1]) { box.insertAdjacentHTML("afterbegin", `<div class="count">${c}</div>`); await new Promise(r => setTimeout(r, 800)); box.querySelector(".count")?.remove(); }
   REC.busy = false; REC.active = true; REC.i = 0; REC.marks = [0]; REC.cuts = [];
+  $("#booth")?.scrollIntoView({ block: "start", behavior: "smooth" });
   startRecorder(uploadTake);
   showLine();
   REC.timer = setInterval(() => { const t = $("#rtime"); if (t) t.textContent = fmtT(now()); }, 500);
@@ -788,7 +840,7 @@ async function retakeLine(k) {
   if (!(await micOpen())) return;
   const row = $("#take-" + k), e = state.job.takes[k];
   row.insertAdjacentHTML("beforeend", `<div class="liverec" id="live"><div class="muted">Line ${k + 1}: press <b>Start</b>, read the line, then <b>Stop</b> (or <kbd>Space</kbd>).</div>
-    <div class="big">${esc(e.subtitle)}</div><div class="row" style="align-items:center"><div class="meter"><div></div></div>
+    ${boardSrc(state.job, k) ? `<img src="${boardSrc(state.job, k)}" alt="On screen">` : ""}<div class="big">${esc(e.subtitle)}</div><div class="row" style="align-items:center"><div class="meter"><div></div></div>
     <div style="flex:0;min-width:auto;display:flex;gap:8px" id="livebtn"><button class="btn primary" onclick="liveStart(${k})">● Start</button><button class="btn" onclick="liveClose()">Cancel</button></div></div></div>`);
   REC.busy = true;
 }
@@ -812,7 +864,7 @@ async function useHeard(k) { const e = state.job.takes[k]; await act("subtitle",
 function afterRenderJob() {
   const j = state.job; if (!j) return;
   if (j.status === "record") {
-    drawRecBar();
+    drawRecBar(); preloadStills();
     if (REC.stream) fillMics(); else if (navigator.permissions?.query) navigator.permissions.query({ name: "microphone" }).then(p => { if (p.state === "granted") micOpen(); }).catch(() => {});
     const f = $("#recfile"); if (f) f.onchange = (e) => { const file = e.target.files[0]; if (file) uploadTake(Object.assign(file.slice(0, file.size, file.type), { name: file.name }), { marks: [], cuts: [] }); };
   }
@@ -851,7 +903,7 @@ async function refresh(force = false) {
       if (force || sig !== lastSig || !state.job) {
         const statusChanged = state.job && state.job.status !== j.status;
         state.job = j; lastSig = sig;
-        const typing = ["notes", "narr", "th-h", "th-s", "th-f", "sh-t", "sh-a", "sh-b"].includes(document.activeElement?.id) || document.activeElement?.classList.contains("subt");
+        const typing = ["notes", "bnotes", "narr", "th-h", "th-s", "th-f", "sh-t", "sh-a", "sh-b"].includes(document.activeElement?.id) || document.activeElement?.classList.contains("subt");
         if (REC.active || REC.busy) { /* never redraw under the teleprompter or a line recording */ }
         else if (!typing || statusChanged || force) renderJob();
         else { const log = $("#log"); if (log) { const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 30; log.textContent = j.log; if (stick) log.scrollTop = log.scrollHeight; } }
