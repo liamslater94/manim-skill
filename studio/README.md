@@ -10,8 +10,15 @@ manim skill end to end:
    points out common mistakes. A second Claude then solves the question **independently** and
    flags anything that disagrees (with a button to have the first fix it). You check the maths,
    edit the narration directly or ask for changes, then approve.
-2. **Voice.** Your cloned voice reads the approved script (`tools/tts-generate.py --clone`),
-   with thinking pauses after worked steps and every take checked against the script.
+2. **Voice.** You read the approved script aloud from a built-in **teleprompter**, in one take,
+   with your Mac's microphone: tap <kbd>Space</kbd> as you start each new line (it lights up the
+   next one), or <kbd>R</kbd> to read a line again. The app cleans the take (rumble, background
+   noise, key clicks, even level), splits it into lines at your taps, makes sure every
+   `[pause N]` is at least that long, and checks each line against the script. Then you listen
+   back: re-record any single line, correct a line's subtitle, or record the whole thing again
+   (`studio/recording.py`). You can also upload a recording made elsewhere. Record your end-screen
+   sign-off once under ⚙ Settings → End screen. Prefer a cloned voice? Choose it under ⚙ Settings →
+   Narration (`tools/tts-generate.py --clone`).
 3. **Video.** Claude Code writes the Manim animation timed to your narration, renders it,
    checks frames for layout problems and fixes them. Every video uses the channel's house style
    (`studio/house_style.py`): one colour per variable, the question pinned in the top-left corner,

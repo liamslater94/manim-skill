@@ -97,6 +97,8 @@
   .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #27272a; color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 10; }
   .toast.show { opacity: 1; }
   .muted { color: var(--text-tertiary); }
+  a { color: var(--accent-hover); }
+  @media (prefers-color-scheme: dark) { a { color: var(--accent); } }
   .check { display: flex; gap: 10px; align-items: flex-start; font-weight: 500; color: var(--text-primary); margin-top: 12px; }
   .check input { margin-top: 3px; }
   .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 8px; }
@@ -118,8 +120,28 @@
   .plan-v { padding: 10px 0; border-top: 1px solid var(--border); display: flex; gap: 12px; align-items: flex-start; }
   .plan-v > div { flex: 1; min-width: 0; }
   video.vertical { max-width: 320px; margin: 0 auto; }
+  .prompter { background: #0b0f14; color: #f4f1ea; border-radius: 12px; padding: 22vh 28px; margin-top: 14px; max-height: 56vh; overflow-y: auto; position: relative; scroll-behavior: smooth; }
+  .pl { font-size: 20px; line-height: 1.45; color: rgba(244,241,234,0.38); margin: 0 0 18px; transition: color .2s, font-size .2s; }
+  .pl.cur { font-size: 30px; font-weight: 650; color: #fff; }
+  .pl.done { color: rgba(244,241,234,0.22); }
+  .pl .pz { font-size: 13px; font-weight: 600; color: #FFD23F; border: 1px solid rgba(255,210,63,0.5); border-radius: 99px; padding: 1px 8px; margin-left: 8px; vertical-align: middle; white-space: nowrap; }
+  .count { position: sticky; top: 30%; text-align: center; font-size: 90px; font-weight: 700; color: #FFD23F; height: 0; overflow: visible; }
+  .meter { height: 8px; border-radius: 99px; background: var(--bg-soft); overflow: hidden; min-width: 140px; }
+  .meter > div { height: 100%; width: 0; background: var(--accent); transition: width .08s; }
+  .meter.hot > div { background: var(--danger); }
+  .recdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--danger); animation: blink 1s infinite; margin-right: 6px; }
+  @keyframes blink { 50% { opacity: .25; } }
+  kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--border-input); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; }
+  .take { display: grid; grid-template-columns: 28px 230px 1fr auto; gap: 8px 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); }
+  .take audio { width: 100%; height: 34px; }
+  .take .warn { grid-column: 3 / 5; font-size: 12.5px; color: var(--warn); }
+  .take.flag { background: var(--warn-muted); border-radius: 8px; padding: 10px 8px; }
+  .liverec { grid-column: 1 / 5; padding: 12px; border-radius: 10px; background: var(--bg-soft); }
+  .liverec .big { font-size: 22px; font-weight: 600; margin: 6px 0 10px; }
   @media (max-width: 860px) {
     .grid3 { grid-template-columns: 1fr; }
+    .take { grid-template-columns: 24px 1fr; } .take > :nth-child(n+3) { grid-column: 1 / 3; }
+    .pl.cur { font-size: 24px; }
     .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; min-height: 100vh; }
     aside { border-right: none; border-bottom: 1px solid var(--border); max-height: 40vh; }
     .grid2 { grid-template-columns: 1fr; }
@@ -148,6 +170,8 @@ const STATUS = {
   queued_script: ["Waiting to write script", "run"], scripting: ["Writing script", "run"],
   script_ready: ["Check the script", "wait"],
   queued_check: ["Waiting to check the maths", "run"], checking: ["Checking the maths", "run"],
+  record: ["Record your narration", "wait"], queued_takes: ["Waiting to process recording", "run"],
+  processing: ["Processing your recording", "run"], takes_review: ["Check your recording", "wait"],
   queued_voice: ["Waiting to voice", "run"], voicing: ["Recording voice", "run"],
   queued_video: ["Waiting to animate", "run"], rendering: ["Animating", "run"],
   review: ["Watch & review", "wait"],
@@ -155,11 +179,13 @@ const STATUS = {
   queued_export: ["Waiting to export", "run"], exporting: ["Exporting 1080p", "run"],
   done: ["Ready for YouTube", "ok"], failed: ["Failed", "bad"], cancelled: ["Cancelled", "bad"],
 };
-const STEP_OF = { queued_script: 0, scripting: 0, script_ready: 0, queued_check: 0, checking: 0, queued_voice: 1, voicing: 1,
+const STEP_OF = { queued_script: 0, scripting: 0, script_ready: 0, queued_check: 0, checking: 0,
+  record: 1, queued_takes: 1, processing: 1, takes_review: 1, queued_voice: 1, voicing: 1,
   queued_video: 2, rendering: 2, review: 2, queued_revise: 2, revising: 2, queued_export: 3, exporting: 3, done: 4 };
 const RUN_TEXT = {
   scripting: "Claude is writing the narration and a worked solution, then a second Claude checks the maths independently.",
   checking: "A second Claude is solving the question from scratch and comparing it with the script.",
+  processing: "Cleaning up your recording, splitting it into lines and checking each one against the script.",
   voicing: "Narrating in your voice and checking every take. This takes a few minutes.",
   rendering: "Claude is writing and rendering the animation, then checking frames. Usually 10–25 minutes.",
   revising: "Claude is applying your notes and re-rendering the affected scenes.",
@@ -258,8 +284,13 @@ function renderSettings() {
   $("#view").innerHTML = `
     <h1>Voice & settings</h1>
     <div class="card">
-      <h2>Your voice</h2>
-      <div class="sub">The clone copies about 12 seconds of you, so the best 12 seconds matter more than a long recording.</div>
+      <h2>Narration</h2>
+      <label class="check"><input type="radio" name="vmode" value="record" ${s.voice_mode !== "clone" ? "checked" : ""}><span>Record it myself <span class="pill ok">recommended</span><span class="hint" style="display:block;margin-top:2px">After you approve the script, the app shows it as a teleprompter and records you reading it in one take with your Mac's microphone. Your real voice, pace and emphasis; the animation is timed to it.</span></span></label>
+      <label class="check"><input type="radio" name="vmode" value="clone" ${s.voice_mode === "clone" ? "checked" : ""}><span>Cloned voice<span class="hint" style="display:block;margin-top:2px">The app reads the script in a clone of your voice. No recording needed, but it sounds less natural.</span></span></label>
+    </div>
+    <div class="card">
+      <h2>Cloned voice</h2>
+      <div class="sub">Only used when Narration is set to Cloned voice. The clone copies about 12 seconds of you, so the best 12 seconds matter more than a long recording.</div>
       <h2 style="margin-top:16px;font-size:14px">Find my best clip <span class="pill ok">recommended</span></h2>
       <div class="sub">Read the <a href="/voice-script" target="_blank">recording script</a> (about 5 minutes) in one go and upload it. The app clones a test line from every take, scores how much each sounds like you, and lets you listen to the best before choosing. Takes about 10 minutes.</div>
       <div class="actions"><input type="file" id="longrec" accept="audio/*,video/*" hidden>
@@ -323,6 +354,9 @@ function renderSettings() {
         <div style="max-width:200px"><label for="endsec">Length (s)</label><input type="number" id="endsec" step="1" min="0" max="20" value="${s.endscreen_seconds ?? 20}"><div class="hint">YouTube allows 5–20 s. 0 turns it off.</div></div>
         <div><label for="signoff">Spoken sign-off</label><input type="text" id="signoff" value="${esc(s.signoff || "")}" placeholder="e.g. Thanks for watching! Pick one of these videos to keep learning."><div class="hint">Said in your voice over the end screen. Leave empty for silence.</div></div>
       </div>
+      <div class="actions" id="sorec"><span class="muted">Your recorded sign-off (used when you record narration yourself):</span>
+        <audio controls preload="none" src="/api/signoff?v=${Date.now()}" style="height:34px" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'muted',textContent:'not recorded yet'}))"></audio>
+        <button class="btn" onclick="recordSignoff()">● Record sign-off</button></div>
     </div>
     <div class="card">
       <h2>Extras made at export</h2>
@@ -354,7 +388,7 @@ function renderSettings() {
   upload("#mfile", "/api/music", async (d) => { state.settings = d; toast("Music saved"); renderSettings(); });
   upload("#longrec", "/api/voice-recording", async (d) => { state.pick = d; toast("Testing your takes…"); renderPick(); });
   $("#save").onclick = async () => {
-    try { state.settings = await api("/api/settings", { say: $("#say").value, speed: +$("#speed").value, pause: +$("#pause").value,
+    try { state.settings = await api("/api/settings", { voice_mode: document.querySelector('input[name="vmode"]:checked')?.value || "record", say: $("#say").value, speed: +$("#speed").value, pause: +$("#pause").value,
       guidance: +$("#guid").value, channel: $("#chan").value, badge: $("#badge").value, greeting: $("#greet").value,
       endscreen_seconds: Math.min(20, +$("#endsec").value || 0), signoff: $("#signoff").value, natural_pauses: $("#natural").checked,
       house_style: $("#hstyle").checked, pause_try: $("#ptry").checked, maths_check: $("#mcheck").checked, house_notes: $("#notes-style").value,
@@ -365,6 +399,24 @@ function renderSettings() {
   renderPick();
 }
 
+async function recordSignoff() {
+  if (REC.active || !(await micOpen())) return;
+  const bar = $("#sorec");
+  bar.innerHTML = `<div class="liverec" style="width:100%"><div class="muted">Read this, then press Stop:</div><div class="big">${esc($("#signoff").value)}</div>
+    <div class="row" style="align-items:center"><div class="meter"><div></div></div><div style="flex:0;min-width:auto;display:flex;gap:8px" id="sobtn">
+    <button class="btn primary" id="sostart">● Start</button></div></div></div>`;
+  $("#sostart").onclick = () => {
+    REC.active = true; REC.line = -1;
+    startRecorder(async (blob) => {
+      try {
+        const r = await fetch("/api/signoff", { method: "POST", body: blob, headers: { "X-Filename": encodeURIComponent("signoff" + extFor(REC.mime)) } });
+        const d = await r.json(); if (!r.ok) throw new Error(d.error); toast(`Sign-off saved (${d.signoff_seconds}s)`);
+      } catch (err) { toast(err.message); }
+      REC.active = false; REC.line = null; micClose(); renderSettings();
+    });
+    $("#sobtn").innerHTML = `<span><span class="recdot"></span>Recording</span><button class="btn primary" onclick="liveStop()">■ Stop</button>`;
+  };
+}
 async function clearMusic() { try { state.settings = await api("/api/music/clear", {}); renderSettings(); } catch (e) { toast(e.message); } }
 
 function renderPick() {
@@ -436,9 +488,9 @@ async function refreshPlans() { try { state.plans = await api("/api/plans"); dra
 async function planMake(id, index) { try { await api(`/api/plans/${id}/make`, { index }); toast(index === "all" ? "Videos created" : "Video created"); await refreshPlans(); await refresh(true); } catch (e) { toast(e.message); } }
 async function planDelete(id) { if (confirm("Delete this plan? Videos already made are kept.")) { await api(`/api/plans/${id}/delete`, {}); await refreshPlans(); } }
 
-function stepper(status) {
+function stepper(status, mode) {
   const at = status === "failed" || status === "cancelled" ? -1 : (STEP_OF[status] ?? 0);
-  const names = [["Script", "Claude writes, you check"], ["Voice", "your cloned voice"], ["Video", "animation + your review"], ["Export", "1080p + YouTube text"]];
+  const names = [["Script", "Claude writes, you check"], ["Voice", mode === "clone" ? "your cloned voice" : "you read it aloud"], ["Video", "animation + your review"], ["Export", "1080p + YouTube text"]];
   return `<div class="steps">${names.map(([n, d], i) => `<div class="step ${i < at ? "done" : i === at ? "now" : ""}">${n}<div class="n">${d}</div></div>`).join("")}</div>`;
 }
 
@@ -449,6 +501,8 @@ function renderJob() {
   let banner = "";
   if (running) banner = `<div class="banner run"><span class="spin"></span><div class="msg">${running}</div><button class="btn" onclick="act('cancel')">Cancel</button></div>`;
   else if (j.status.startsWith("queued_")) banner = `<div class="banner run"><div class="msg">${esc(STATUS[j.status][0])}: another video is using the renderer; this starts automatically.</div><button class="btn" onclick="act('cancel')">Cancel</button></div>`;
+  else if (j.status === "record") banner = `<div class="banner wait"><div class="msg"><b>Your turn:</b> read the script aloud. It's one take: tap <kbd>Space</kbd> as you start each new line and keep going. You can redo any line afterwards.</div></div>`;
+  else if (j.status === "takes_review") banner = `<div class="banner wait"><div class="msg"><b>Your turn:</b> listen back. Re-record any line you're not happy with, then use the recording.</div></div>`;
   else if (j.status === "script_ready") banner = `<div class="banner wait"><div class="msg"><b>Your turn:</b> check the worked solution and narration. Edit directly or ask for changes, then approve.</div></div>`;
   else if (j.status === "review") banner = `<div class="banner wait"><div class="msg"><b>Your turn:</b> watch the video. Note anything to fix (use “Add timestamp”), or export it for YouTube.</div></div>`;
   else if (j.status === "failed" || j.status === "cancelled") banner = `<div class="banner bad"><div class="msg"><b>${j.status === "failed" ? "Something went wrong" : "Cancelled"}</b>${j.error ? ": " + esc(j.error) : ""}. The activity log below has details.</div><button class="btn primary" onclick="act('retry')">Retry</button></div>`;
@@ -471,7 +525,11 @@ function renderJob() {
         <div class="actions"><button class="btn" onclick="saveNarration()">Save edits</button></div></div></div>
       <div class="card"><h2>Ask Claude for changes</h2><textarea id="notes" rows="3" placeholder="e.g. Explain why we can divide by 4 more slowly, and add a check of the base case n = 1."></textarea>
         <div class="actions"><button class="btn" onclick="act('rescript', {notes: $('#notes').value})">Rewrite script</button>
-        <span style="flex:1"></span><button class="btn primary" onclick="approve()">Approve → voice & animate</button></div></div>`;
+        <span style="flex:1"></span><button class="btn primary" onclick="approve()">${(state.settings || {}).voice_mode === "clone" ? "Approve → voice & animate" : "Approve → record it"}</button></div></div>`;
+  } else if (j.status === "record") {
+    body = recorderCard(j);
+  } else if (j.status === "takes_review") {
+    body = takesCard(j, v);
   } else if (["review", "done"].includes(j.status) || (v("video.mp4") && !["scripting","queued_script"].includes(j.status))) {
     const final = j.status === "done" && v("video_1080p.mp4");
     body = `<div class="card"><h2>${final ? "Final video (1080p)" : "Video"}</h2>
@@ -539,7 +597,7 @@ function renderJob() {
   $("#view").innerHTML = `
     <div class="row" style="align-items:flex-start"><div style="flex:3"><h1>${esc(j.title)}</h1><div class="sub">${pill(j.status)} &nbsp;${esc(j.folder)}</div></div>
       <div style="flex:0;min-width:auto"><button class="btn danger" onclick="del()">Delete</button></div></div>
-    ${stepper(j.status)}${banner}${question}${body}
+    ${stepper(j.status, j.voice_mode || (state.settings || {}).voice_mode)}${banner}${question}${body}
     <details class="card" id="logbox" ${logOpen || state.logOpen ? "open" : ""}><summary>Activity log</summary><pre class="log" id="log" style="margin-top:10px">${esc(j.log || "")}</pre></details>`;
   $("#logbox").ontoggle = (e) => state.logOpen = e.target.open;
   if (keep.notes && $("#notes")) $("#notes").value = keep.notes;
@@ -550,9 +608,13 @@ function renderJob() {
   const p = $("#player");
   if (p && keep.src === p.getAttribute("src") && keep.t) { p.currentTime = keep.t; if (!keep.paused) p.play(); }
   const log = $("#log"); if (log && stick) log.scrollTop = log.scrollHeight;
+  afterRenderJob();
 }
 
-async function revoice() { if (confirm("Record the narration again using your current voice settings (⚙), then re-time the animation?")) await act("revoice"); }
+async function revoice() {
+  if (state.job.voice_mode === "record") { await act("revoice"); return; }
+  if (confirm("Record the narration again using your current voice settings (⚙), then re-time the animation?")) await act("revoice");
+}
 function useFrame() { const p = $("#player"); if (p) { $("#th-f").value = p.currentTime.toFixed(1); state.thumbDirty = true; } }
 function pickThumb(i) { state.thumb = i; state.thumbDirty = false; renderJob(); }
 async function makeThumb() {
@@ -580,6 +642,191 @@ function addStamp() {
   n.value = n.value.slice(0, at) + (at && !/\s$/.test(n.value.slice(0, at)) ? "\n" : "") + stamp + n.value.slice(at); n.focus();
 }
 
+// ------------------------------------------------------------ recording --
+const REC = { stream: null, ctx: null, analyser: null, raf: 0, mr: null, chunks: [], t0: 0, marks: [], cuts: [], i: 0,
+  active: false, busy: false, line: null, onstop: null };
+const pickMime = () => ["audio/webm;codecs=opus", "audio/mp4", "audio/webm", "audio/ogg"].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
+const extFor = (mime) => mime.includes("mp4") ? ".m4a" : mime.includes("ogg") ? ".ogg" : ".webm";
+const fmtT = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+
+async function micOpen() {
+  if (REC.stream && REC.stream.active) return true;
+  if (!navigator.mediaDevices?.getUserMedia) { toast("This browser can't record audio. Try Chrome or Safari."); return false; }
+  let dev = ""; try { dev = localStorage.getItem("mic") || ""; } catch (e) {}
+  const want = { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1 };
+  try { REC.stream = await navigator.mediaDevices.getUserMedia({ audio: dev ? { ...want, deviceId: { exact: dev } } : want }); }
+  catch (e) {
+    try { REC.stream = await navigator.mediaDevices.getUserMedia({ audio: want }); }
+    catch (e2) { toast("Microphone blocked. Allow it in the browser (the icon in the address bar), then try again."); return false; }
+  }
+  REC.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = REC.ctx.createMediaStreamSource(REC.stream);
+  REC.analyser = REC.ctx.createAnalyser(); REC.analyser.fftSize = 1024; src.connect(REC.analyser);
+  const buf = new Float32Array(REC.analyser.fftSize);
+  const tick = () => {
+    REC.analyser.getFloatTimeDomainData(buf);
+    let peak = 0; for (const x of buf) peak = Math.max(peak, Math.abs(x));
+    document.querySelectorAll(".meter").forEach(m => { m.firstElementChild.style.width = Math.min(100, Math.round(peak * 140)) + "%"; m.classList.toggle("hot", peak > 0.92); });
+    REC.raf = requestAnimationFrame(tick);
+  };
+  cancelAnimationFrame(REC.raf); tick();
+  await fillMics();
+  return true;
+}
+async function fillMics() {
+  const sel = $("#micsel"); if (!sel || !navigator.mediaDevices?.enumerateDevices) return;
+  const list = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "audioinput");
+  const cur = REC.stream?.getAudioTracks()[0]?.getSettings().deviceId || "";
+  sel.innerHTML = list.map((d, k) => `<option value="${esc(d.deviceId)}" ${d.deviceId === cur ? "selected" : ""}>${esc(d.label || "Microphone " + (k + 1))}</option>`).join("");
+}
+async function chooseMic(id) {
+  try { localStorage.setItem("mic", id); } catch (e) {}
+  if (REC.stream) REC.stream.getTracks().forEach(t => t.stop()); REC.stream = null;
+  await micOpen();
+}
+function micClose() {
+  cancelAnimationFrame(REC.raf);
+  if (REC.stream) REC.stream.getTracks().forEach(t => t.stop());
+  if (REC.ctx) REC.ctx.close().catch(() => {});
+  REC.stream = REC.ctx = REC.analyser = null;
+}
+function startRecorder(onstop) {
+  const mime = pickMime();
+  REC.mr = new MediaRecorder(REC.stream, mime ? { mimeType: mime, audioBitsPerSecond: 160000 } : {});
+  REC.chunks = []; REC.mime = REC.mr.mimeType || mime || "audio/webm";
+  REC.mr.ondataavailable = (e) => { if (e.data.size) REC.chunks.push(e.data); };
+  REC.mr.onstart = () => { REC.t0 = performance.now(); };
+  REC.mr.onstop = () => onstop(new Blob(REC.chunks, { type: REC.mime }));
+  REC.mr.start(1000);
+}
+const now = () => (performance.now() - REC.t0) / 1000;
+
+function recorderCard(j) {
+  const lines = j.entries || [];
+  return `<div class="card" id="rec"><h2>Record the narration</h2>
+    <div class="sub">Read it the way you'd explain it to a student sitting beside you. Press <kbd>Space</kbd> (or <b>Next line</b>) as you start each new line, and keep going without stopping. Fluffed a line? Press <kbd>R</kbd> and read that line again. A yellow <span class="pill wait">pause</span> means leave a moment of thinking time.</div>
+    <div class="row" style="align-items:center;margin-top:12px">
+      <div style="max-width:320px"><select id="micsel" onchange="chooseMic(this.value)"><option>Microphone…</option></select></div>
+      <div class="meter" title="Speak at your normal volume: the bar should reach about two thirds"><div></div></div>
+      <div style="flex:0;min-width:auto"><button class="btn" id="mictest" onclick="micOpen()">Test microphone</button></div>
+    </div>
+    <div class="prompter" id="prompter">${lines.map((e, k) => `<div class="pl" data-k="${k}">${esc(e.text)}${e.hint ? `<span class="pz">pause</span>` : ""}</div>`).join("")}</div>
+    <div class="actions" id="recbar"></div>
+    <details style="margin-top:12px"><summary style="font-size:13px">Or upload a recording you made elsewhere</summary>
+      <div class="sub" style="margin-top:6px">Read the whole script in one go with a short pause between lines; the app finds the lines itself.</div>
+      <div class="actions"><input type="file" id="recfile" accept="audio/*,video/*" hidden><button class="btn" onclick="$('#recfile').click()">Upload recording</button></div></details>
+  </div>`;
+}
+function drawRecBar() {
+  const bar = $("#recbar"); if (!bar) return;
+  if (REC.busy) { bar.innerHTML = `<span class="spin"></span> <span>Uploading your recording…</span>`; return; }
+  if (!REC.active) { bar.innerHTML = `<button class="btn primary" onclick="beginTake()">● Start recording</button><span class="muted">A 3-second countdown, then the first line lights up.</span>`; return; }
+  const n = (state.job.entries || []).length, last = REC.i >= n - 1;
+  bar.innerHTML = `<span><span class="recdot"></span><span id="rtime">${fmtT(now())}</span></span>
+    <button class="btn primary" onclick="nextLine()">${last ? "Finish ⏎" : "Next line ␣"}</button>
+    <button class="btn" onclick="redoLine()">Redo this line (R)</button>
+    <span style="flex:1"></span><span class="muted">Line ${REC.i + 1} of ${n}</span>
+    <button class="btn danger" onclick="cancelTake()">Cancel</button>`;
+}
+function showLine() {
+  document.querySelectorAll("#prompter .pl").forEach(el => { const k = +el.dataset.k; el.classList.toggle("cur", k === REC.i); el.classList.toggle("done", k < REC.i); });
+  const cur = document.querySelector(`#prompter .pl[data-k="${REC.i}"]`), box = $("#prompter");
+  if (cur && box) box.scrollTop = cur.offsetTop - box.clientHeight * 0.35;
+  drawRecBar();
+}
+async function beginTake() {
+  if (!(await micOpen())) return;
+  REC.busy = true; const box = $("#prompter");
+  for (const c of [3, 2, 1]) { box.insertAdjacentHTML("afterbegin", `<div class="count">${c}</div>`); await new Promise(r => setTimeout(r, 800)); box.querySelector(".count")?.remove(); }
+  REC.busy = false; REC.active = true; REC.i = 0; REC.marks = [0]; REC.cuts = [];
+  startRecorder(uploadTake);
+  showLine();
+  REC.timer = setInterval(() => { const t = $("#rtime"); if (t) t.textContent = fmtT(now()); }, 500);
+}
+function nextLine() {
+  if (!REC.active) return;
+  const n = (state.job.entries || []).length;
+  if (REC.i >= n - 1) return finishTake();
+  REC.marks.push(now()); REC.i++; showLine();
+}
+function redoLine() {
+  if (!REC.active) return;
+  const t = now(); REC.cuts.push([REC.marks[REC.i], t]); REC.marks[REC.i] = t;
+  const cur = document.querySelector(`#prompter .pl[data-k="${REC.i}"]`); if (cur) { cur.style.color = "#FFD23F"; setTimeout(() => cur.style.color = "", 600); }
+  toast(`Line ${REC.i + 1}: read it again`);
+}
+function finishTake() { REC.active = false; REC.busy = true; clearInterval(REC.timer); drawRecBar(); REC.mr.stop(); }
+function cancelTake() { if (!confirm("Stop and throw this take away?")) return; REC.active = false; clearInterval(REC.timer); REC.mr.onstop = null; REC.mr.stop(); showLine(); REC.i = 0; drawRecBar(); document.querySelectorAll("#prompter .pl").forEach(el => el.classList.remove("cur", "done")); }
+async function uploadTake(blob, meta) {
+  REC.busy = true; drawRecBar();
+  try {
+    const r = await fetch(`/api/jobs/${state.job.id}/recording`, { method: "POST", body: blob,
+      headers: { "X-Filename": encodeURIComponent(blob.name || "take" + extFor(REC.mime)), "X-Meta": encodeURIComponent(JSON.stringify(meta || { marks: REC.marks, cuts: REC.cuts })) } });
+    const d = await r.json(); if (!r.ok) throw new Error(d.error);
+    micClose(); REC.busy = false; await refresh(true);
+  } catch (e) { REC.busy = false; toast(e.message); drawRecBar(); }
+}
+
+function takesCard(j, v) {
+  const t = j.takes || [];
+  const rows = t.map((e, k) => `<div class="take ${e.flag ? "flag" : ""}" id="take-${k}">
+      <b>${k + 1}</b>
+      <audio controls preload="none" src="/files/${j.id}/takes/${e.file}?v=${e.v}"></audio>
+      <input type="text" class="subt" data-k="${k}" value="${esc(e.subtitle)}" title="Subtitle for this line">
+      <button class="btn" onclick="retakeLine(${k})">Re-record</button>
+      ${e.flag ? `<div class="warn">⚠ ${esc(e.flag)} Heard: “${esc(e.heard || "")}” ${e.heard ? `<a href="#" onclick="useHeard(${k});return false">Use what I said as the subtitle</a>` : ""}</div>` : ""}
+    </div>`).join("");
+  return `<div class="card"><h2>Check your recording</h2>
+    <div class="sub">Play it through, or line by line. Re-record any line; the text box is that line's subtitle, so fix it if you said something different. Lines marked ⚠ sounded different from the script.</div>
+    ${v("voiceover.mp3") ? `<audio controls preload="metadata" src="${v("voiceover.mp3")}" style="width:100%;margin-top:12px"></audio>` : ""}
+    <div style="margin-top:8px">${rows}</div>
+    <div class="actions"><button class="btn" onclick="act('record_again')">Record the whole thing again</button>
+      <span style="flex:1"></span><button class="btn primary" onclick="act('use_recording')">Use this recording → animate</button></div></div>`;
+}
+async function retakeLine(k) {
+  if (REC.busy || REC.active) return;
+  if (!(await micOpen())) return;
+  const row = $("#take-" + k), e = state.job.takes[k];
+  row.insertAdjacentHTML("beforeend", `<div class="liverec" id="live"><div class="muted">Line ${k + 1}: press <b>Start</b>, read the line, then <b>Stop</b> (or <kbd>Space</kbd>).</div>
+    <div class="big">${esc(e.subtitle)}</div><div class="row" style="align-items:center"><div class="meter"><div></div></div>
+    <div style="flex:0;min-width:auto;display:flex;gap:8px" id="livebtn"><button class="btn primary" onclick="liveStart(${k})">● Start</button><button class="btn" onclick="liveClose()">Cancel</button></div></div></div>`);
+  REC.busy = true;
+}
+function liveStart(k) {
+  REC.line = k; REC.active = true;
+  startRecorder(async (blob) => {
+    $("#livebtn").innerHTML = `<span class="spin"></span> <span>Saving…</span>`;
+    try {
+      const r = await fetch(`/api/jobs/${state.job.id}/retake/${k}`, { method: "POST", body: blob, headers: { "X-Filename": encodeURIComponent("line" + extFor(REC.mime)) } });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error);
+      toast(`Line ${k + 1} replaced`);
+    } catch (err) { toast(err.message); }
+    liveClose(); await refresh(true);
+  });
+  $("#livebtn").innerHTML = `<span><span class="recdot"></span>Recording</span><button class="btn primary" onclick="liveStop()">■ Stop</button>`;
+}
+function liveStop() { if (REC.mr && REC.mr.state === "recording") { REC.active = false; setTimeout(() => REC.mr.stop(), 350); } }
+function liveClose() { REC.active = false; REC.busy = false; REC.line = null; $("#live")?.remove(); }
+async function useHeard(k) { const e = state.job.takes[k]; await act("subtitle", { index: k, text: e.heard }); }
+
+function afterRenderJob() {
+  const j = state.job; if (!j) return;
+  if (j.status === "record") {
+    drawRecBar();
+    if (REC.stream) fillMics(); else if (navigator.permissions?.query) navigator.permissions.query({ name: "microphone" }).then(p => { if (p.state === "granted") micOpen(); }).catch(() => {});
+    const f = $("#recfile"); if (f) f.onchange = (e) => { const file = e.target.files[0]; if (file) uploadTake(Object.assign(file.slice(0, file.size, file.type), { name: file.name }), { marks: [], cuts: [] }); };
+  }
+  document.querySelectorAll(".subt").forEach(inp => inp.onchange = () => act("subtitle", { index: +inp.dataset.k, text: inp.value }));
+}
+document.addEventListener("keydown", (e) => {
+  if (!REC.active) return;
+  if (REC.line != null) { if (e.code === "Space") { e.preventDefault(); liveStop(); } return; }
+  if (e.code === "Space" || (e.code === "Enter" && REC.i >= (state.job.entries || []).length - 1)) { e.preventDefault(); nextLine(); }
+  else if (e.code === "KeyR") { e.preventDefault(); redoLine(); }
+  else if (e.code === "Escape") cancelTake();
+});
+window.addEventListener("beforeunload", (e) => { if (REC.active || REC.busy) { e.preventDefault(); e.returnValue = ""; } });
+
 function render() {
   renderJobs();
   if (state.view === "new") renderNew();
@@ -604,8 +851,9 @@ async function refresh(force = false) {
       if (force || sig !== lastSig || !state.job) {
         const statusChanged = state.job && state.job.status !== j.status;
         state.job = j; lastSig = sig;
-        const typing = ["notes", "narr", "th-h", "th-s", "th-f", "sh-t", "sh-a", "sh-b"].includes(document.activeElement?.id);
-        if (!typing || statusChanged || force) renderJob();
+        const typing = ["notes", "narr", "th-h", "th-s", "th-f", "sh-t", "sh-a", "sh-b"].includes(document.activeElement?.id) || document.activeElement?.classList.contains("subt");
+        if (REC.active || REC.busy) { /* never redraw under the teleprompter or a line recording */ }
+        else if (!typing || statusChanged || force) renderJob();
         else { const log = $("#log"); if (log) { const stick = log.scrollHeight - log.scrollTop - log.clientHeight < 30; log.textContent = j.log; if (stick) log.scrollTop = log.scrollHeight; } }
       }
     }

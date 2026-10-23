@@ -50,6 +50,7 @@ MAX_UPLOAD = 300 * 1024 * 1024
 DEFAULT_SETTINGS = {
     "audience": "IB Mathematics: Analysis and Approaches HL students",
     "minutes": 4,
+    "voice_mode": "record",
     "voice_sample": "",
     "voice_text": "",
     "voice_pick_used": "",
@@ -79,7 +80,7 @@ DEFAULT_SETTINGS = {
 }
 
 # Status values. "queued_*" statuses are picked up by a worker; the rest are waiting on the user or done.
-LIGHT = {"queued_script": "scripting", "queued_check": "checking"}
+LIGHT = {"queued_script": "scripting", "queued_check": "checking", "queued_takes": "processing"}
 HEAVY = {"queued_voice": "voicing", "queued_video": "rendering",
          "queued_revise": "revising", "queued_export": "exporting"}
 RUNNING = set(LIGHT.values()) | set(HEAVY.values())
@@ -340,6 +341,34 @@ def script_rules(s: dict) -> str:
     return "\n".join(rules) + "\n"
 
 
+def voice_rules(s: dict) -> str:
+    """How to write the narration for the voice that will speak it."""
+    if s.get("voice_mode", "record") == "record":
+        return """- The teacher will read narration.txt aloud themselves, in one take, from a teleprompter. Write exactly
+  what a warm, experienced teacher would say to one student sitting beside them: natural spoken English,
+  contractions, short sentences, signposts ("Now look at this.", "So,", "Here's the key idea:"), and the
+  odd rhetorical question. It must flow as one piece when read aloud: each line follows on from the last,
+  with no repeated sentence openings and nothing that sounds written rather than spoken. Read every line
+  aloud in your head before keeping it.
+- Write maths as it is said ("x squared", "a minus nine", "the integral from zero to one of …"), never
+  symbols or LaTeX, and avoid tongue-twisters and long strings of numbers in one breath.
+- End a line with [pause 2] after every worked step or key result: the teleprompter shows the teacher where
+  to pause, and the app makes sure the pause is at least that long.
+- Keep lines to one or two sentences each (one line is one teleprompter card and one subtitle).
+"""
+    return """- End a line with [pause 2] after every worked step or key result so viewers can take it in; other pauses
+  are timed automatically from how each line ends.
+- The narration is read by a cloned human voice: write maths as it should be spoken
+  ("x squared", "a minus nine", "the integral from zero to one of …"), never symbols or LaTeX.
+- Write it the way you would say it, and punctuate for breathing, because the voice pauses where the
+  punctuation does: commas between items and clauses, a colon before a result ("That gives: zero, minus
+  four…"), full stops to end ideas. Prefer short sentences, contractions, and conversational signposts
+  ("Now look.", "So,", "Here's the key idea:"). A line may end with a comma when the thought continues on
+  the next line.
+- Keep lines to one or two sentences each.
+"""
+
+
 def step_script(job: dict) -> None:
     feedback = job.get("script_feedback", "")
     if feedback and job.get("session"):
@@ -361,17 +390,7 @@ This step is Phase 1 (Narration) only. The question or topic is in question.md:
 Write narration.txt for a video of about {job['minutes']:g} minutes, in the skill's SubtitleSpec format:
 {script_rules(load_settings())}- Teach it the way an excellent teacher would at this level: motivate, explain each step, connect to the
   geometry or intuition, and finish with a short summary. Be mathematically exact.
-- End a line with [pause 2] after every worked step or key result so viewers can take it in; other pauses
-  are timed automatically from how each line ends.
-- The narration is read by a cloned human voice: write maths as it should be spoken
-  ("x squared", "a minus nine", "the integral from zero to one of …"), never symbols or LaTeX.
-- Write it the way you would say it, and punctuate for breathing, because the voice pauses where the
-  punctuation does: commas between items and clauses, a colon before a result ("That gives: zero, minus
-  four…"), full stops to end ideas. Prefer short sentences, contractions, and conversational signposts
-  ("Now look.", "So,", "Here's the key idea:"). A line may end with a comma when the thought continues on
-  the next line.
-- Keep lines to one or two sentences each.
-
+{voice_rules(load_settings())}
 Also write outline.md: the scene-by-scene plan (Scene class names and what appears on screen, matching the
 narration lines) followed by a complete worked solution, so the teacher can check the mathematics.
 
@@ -428,6 +447,21 @@ def run_check(job: dict) -> dict:
 def step_check(job: dict) -> None:
     run_check(job)
     update_job(job["id"], status="script_ready")
+
+
+def step_takes(job: dict) -> None:
+    """Split the teacher's one-take recording into lines (recording.py)."""
+    from recording import process
+    takes = job_dir(job["id"]) / "takes"
+    raw = next(iter(sorted(takes.glob("take-raw.*"))), None)
+    if not raw:
+        raise RuntimeError("No recording found. Record the narration again.")
+    meta = json.loads((takes / "marks.json").read_text())
+    log(job["id"], f"Processing your recording ({len(meta.get('marks', []))} lines marked)…")
+    lines = process(job_dir(job["id"]), raw, meta.get("marks", []), meta.get("cuts", []))
+    flagged = sum(1 for e in lines if e.get("flag"))
+    log(job["id"], f"Recording split into {len(lines)} lines" + (f"; {flagged} to check." if flagged else "."))
+    update_job(job["id"], status="takes_review")
 
 
 def step_voice(job: dict) -> None:
@@ -540,9 +574,9 @@ clipped text, unreadable labels and anything mathematically wrong, re-render tho
 Finish when video.mp4 is complete and verified with ffprobe.
 """ + house_rules() + opening_instructions() + ENDCARD_RULE
     if job.get("retime") and (job_dir(job["id"]) / "script.py").exists():
-        prompt = """The narration was re-recorded with the same wording: voiceover.mp3 and timestamps.json are new.
-Do NOT run tts-generate.py or edit narration.txt. Update script.py so every segment's duration matches the new
-timestamps.json (keep the visuals), lint it, re-render every scene, rewrite concat.txt if needed and re-mux
+        prompt = """The narration was re-recorded: voiceover.mp3 and timestamps.json are new (same lines, though a
+line's wording may have been corrected). Do NOT run tts-generate.py or edit narration.txt. Update script.py so
+every add_subcaption() text and segment duration matches the new timestamps.json (keep the visuals), lint it, re-render every scene, rewrite concat.txt if needed and re-mux
 video.mp4 with the new voiceover.mp3. Verify it with ffprobe and check a few frames. Do not launch the viewer.
 """
     prepare_assets(job["id"])
@@ -557,6 +591,23 @@ video.mp4 with the new voiceover.mp3. Verify it with ffprobe and check a few fra
 def step_revise(job: dict) -> None:
     voice = " ".join(f'"{c}"' if " " in c else c for c in voice_command())
     prepare_assets(job["id"])
+    if job.get("voice_mode") == "record":
+        prompt = f"""The teacher watched video.mp4 and gives this feedback (timestamps refer to video.mp4):
+
+{job.get('video_feedback', '')}
+
+Apply it, following the skill's Phase 6 iteration rules: for a referenced moment, extract that frame and
+look at it before changing code. The narration is the teacher's own recording: never edit narration.txt,
+voiceover.mp3 or timestamps.json, and never run tts-generate.py. If the feedback asks to change what is
+said, change only the visuals and end your final message with the line numbers the teacher needs to
+re-record. Keep to the house style in house_style.py. {ENDCARD_RULE.strip()} Re-render only the affected
+scenes, update concat.txt if needed, re-mux video.mp4, and verify it with ffprobe. Do not launch the viewer.
+"""
+        code, _ = run_process(job["id"], claude_cmd(prompt, job.get("session", "")), claude=True)
+        if code or not (job_dir(job["id"]) / "video.mp4").exists():
+            raise RuntimeError("Revision did not produce video.mp4")
+        update_job(job["id"], status="review", video_feedback="")
+        return
     prompt = f"""The teacher watched video.mp4 and gives this feedback (timestamps refer to video.mp4):
 
 {job.get('video_feedback', '')}
@@ -704,7 +755,17 @@ def add_endscreen(job_id: str) -> None:
     (d / "video_1080p.mp4").replace(d / "video_1080p_main.mp4")
     voice = None
     signoff = s.get("signoff", "").strip()
-    if signoff:
+    recorded = STUDIO_DIR / "signoff.wav"
+    if signoff and read_job(job_id).get("voice_mode") == "record":
+        if recorded.exists():
+            from audio import duration
+            shutil.copy(recorded, d / "endscreen-voice.wav")
+            voice = d / "endscreen-voice.wav"
+            (d / "endscreen-timestamps.json").write_text(json.dumps(
+                {"subtitles": [{"duration_s": duration(voice), "pause_s": 0}]}))
+        else:
+            log(job_id, "No recorded sign-off yet (⚙ Settings → End screen), so the end screen is silent.")
+    elif signoff:
         (d / "endscreen-narration.txt").write_text(f"subtitles:\n- {signoff}\n")
         code, _ = run_process(job_id, voice_command("endscreen-narration.txt", "endscreen-voice.mp3",
                                                     "endscreen-timestamps.json"), claude=False)
@@ -849,7 +910,7 @@ def chapter_lines(d: Path) -> list[str]:
     return [f"{fmt(start)} {name}" for start, _, name in merged]
 
 
-STEPS = {"scripting": step_script, "checking": step_check, "voicing": step_voice, "rendering": step_video,
+STEPS = {"scripting": step_script, "checking": step_check, "processing": step_takes, "voicing": step_voice, "rendering": step_video,
          "revising": step_revise, "exporting": step_export}
 
 
@@ -908,13 +969,30 @@ def act(job_id: str, action: str, body: dict) -> dict:
             return read_job(job_id)
         if action == "approve":
             need("script_ready")
-            return update_job(job_id, status="queued_voice", queued_at=time.time())
+            if load_settings().get("voice_mode", "record") == "record":
+                return update_job(job_id, status="record", voice_mode="record")
+            return update_job(job_id, status="queued_voice", voice_mode="clone", queued_at=time.time())
+        if action == "use_recording":
+            need("takes_review")
+            retime = (d / "script.py").exists() and (d / "video.mp4").exists()
+            log(job_id, "Using your recording" + (": re-timing the animation to it." if retime else "."))
+            return update_job(job_id, status="queued_video", retime=retime, queued_at=time.time())
+        if action == "record_again":
+            need("takes_review", "record", "review", "done")
+            return update_job(job_id, status="record")
+        if action == "subtitle":
+            need("takes_review")
+            from recording import set_subtitle
+            set_subtitle(d, int(body.get("index", -1)), str(body.get("text", "")))
+            return read_job(job_id)
         if action == "rescript":
             need("script_ready")
             return update_job(job_id, status="queued_script", script_feedback=body.get("notes", ""),
                               queued_at=time.time())
         if action == "revoice":
             need("review", "done")
+            if job.get("voice_mode") == "record":
+                return update_job(job_id, status="takes_review" if (d / "takes" / "lines.json").exists() else "record")
             log(job_id, "Re-recording the voice with the current settings.")
             return update_job(job_id, status="queued_voice", retime=True, queued_at=time.time())
         if action == "revise":
@@ -988,7 +1066,28 @@ def job_detail(job_id: str) -> dict:
     return {**job, "narration": read("narration.txt"), "outline": read("outline.md"),
             "youtube": read("youtube.md"), "log": tail(d / "studio.log"), "files": files, "folder": str(d),
             "thumbnails": thumbnail_specs(job_id), "titles": load("titles.json", []),
-            "short": load("shorts.json", {}), "check": load("check.json", None)}
+            "short": load("shorts.json", {}), "check": load("check.json", None),
+            "takes": takes_detail(d), "entries": entries_detail(d)}
+
+
+def takes_detail(d: Path) -> list[dict]:
+    try:
+        lines = json.loads((d / "takes" / "lines.json").read_text())
+    except (OSError, ValueError):
+        return []
+    for e in lines:
+        f = d / "takes" / e["file"]
+        e["v"] = f.stat().st_mtime_ns if f.exists() else 0
+    return lines
+
+
+def entries_detail(d: Path) -> list[dict]:
+    """The script as teleprompter cards: each line's text and any [pause N] hint."""
+    try:
+        from recording import tts
+        return [{"text": t, "hint": h} for t, h in tts().parse_entries(str(d / "narration.txt"))]
+    except (OSError, SystemExit, ValueError):
+        return []
 
 
 def health() -> dict:
@@ -998,10 +1097,71 @@ def health() -> dict:
         "ffmpeg": bool(shutil.which("ffmpeg")),
         "latex": bool(shutil.which("latex")),
         "manim": subprocess.run([sys.executable, "-c", "import manim"], capture_output=True).returncode == 0,
-        "voice_sample": bool(s.get("voice_sample") and Path(s["voice_sample"]).exists()),
+        "voice_sample": s.get("voice_mode", "record") == "record" or bool(s.get("voice_sample") and Path(s["voice_sample"]).exists()),
         "sherpa_onnx": subprocess.run([sys.executable, "-c", "import sherpa_onnx"], capture_output=True).returncode == 0,
     }
     return {"checks": checks, "home": str(HOME), "python": sys.executable}
+
+
+# ------------------------------------------------------------ own recording --
+AUDIO_EXTS = {".webm", ".m4a", ".mp4", ".mp3", ".wav", ".aac", ".ogg", ".oga", ".flac", ".mov"}
+
+
+def audio_ext(name: str, default: str) -> str:
+    ext = Path(name).suffix.lower() or default
+    if ext not in AUDIO_EXTS:
+        raise ValueError("Use an audio file (m4a, mp3, wav, webm, …).")
+    return ext
+
+
+def save_recording(job_id: str, data: bytes, name: str, meta: dict) -> dict:
+    """The one-take narration from the teleprompter (or an uploaded file): store it and queue processing."""
+    with LOCK:
+        job = read_job(job_id)
+        if job["status"] not in ("record", "takes_review"):
+            raise ValueError(f"Can't take a recording while the video is '{job['status']}'.")
+        if len(data) < 2000:
+            raise ValueError("The recording is empty. Check the microphone and try again.")
+        takes = job_dir(job_id) / "takes"
+        takes.mkdir(exist_ok=True)
+        for old in takes.glob("take-raw.*"):
+            old.unlink()
+        (takes / f"take-raw{audio_ext(name, '.webm')}").write_bytes(data)
+        marks = [float(m) for m in meta.get("marks", [])]
+        cuts = [[float(a), float(b)] for a, b in meta.get("cuts", [])]
+        (takes / "marks.json").write_text(json.dumps({"marks": marks, "cuts": cuts}))
+        log(job_id, f"Recording received ({len(data) / 1e6:.1f} MB).")
+        return update_job(job_id, status="queued_takes", queued_at=time.time())
+
+
+def save_retake(job_id: str, index: int, data: bytes, name: str) -> dict:
+    """Replace one line with a new recording of it."""
+    from recording import retake
+    with LOCK:
+        job = read_job(job_id)
+        if job["status"] != "takes_review":
+            raise ValueError("Re-record lines while checking the recording.")
+    takes = job_dir(job_id) / "takes"
+    tmp = takes / f"retake{audio_ext(name, '.webm')}"
+    tmp.write_bytes(data)
+    try:
+        e = retake(job_dir(job_id), index, tmp)
+    finally:
+        tmp.unlink(missing_ok=True)
+    log(job_id, f"Line {index + 1} re-recorded" + (f" ({e['flag']})" if e.get("flag") else "."))
+    return read_job(job_id)
+
+
+def save_signoff(data: bytes, name: str) -> dict:
+    from recording import clean_clip
+    STUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = STUDIO_DIR / f"signoff-raw{audio_ext(name, '.webm')}"
+    tmp.write_bytes(data)
+    try:
+        seconds = clean_clip(tmp, STUDIO_DIR / "signoff.wav")
+    finally:
+        tmp.unlink(missing_ok=True)
+    return {**load_settings(), "signoff_seconds": round(seconds, 1)}
 
 
 # ------------------------------------------------------------- voice picker --
@@ -1221,6 +1381,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_file(STUDIO_FILES / "voice-recording-script.md")
             elif path == "/api/plans":
                 self.send_json(plan_list())
+            elif m := re.match(r"^/files/([^/]+)/takes/(line-\d{3}\.wav)$", path):
+                self.send_file(job_dir(m.group(1)) / "takes" / m.group(2))
+            elif path == "/api/signoff":
+                self.send_file(STUDIO_DIR / "signoff.wav")
             elif m := re.match(r"^/files/([^/]+)/([^/]+)$", path):
                 if m.group(2) not in SERVED_FILES:
                     raise KeyError(path)
@@ -1240,6 +1404,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_json(create_job(body.get("question", ""), body.get("audience", ""),
                                           body.get("minutes", 0), body.get("image"), body.get("source", ""),
                                           body.get("series", "")))
+            elif m := re.match(r"^/api/jobs/([^/]+)/recording$", path):
+                self.send_json(save_recording(m.group(1), self.read_body(),
+                                              unquote(self.headers.get("X-Filename", "take.webm")),
+                                              json.loads(unquote(self.headers.get("X-Meta", "{}")))))
+            elif m := re.match(r"^/api/jobs/([^/]+)/retake/(\d+)$", path):
+                self.send_json(save_retake(m.group(1), int(m.group(2)), self.read_body(),
+                                           unquote(self.headers.get("X-Filename", "line.webm"))))
+            elif path == "/api/signoff":
+                self.send_json(save_signoff(self.read_body(), unquote(self.headers.get("X-Filename", "signoff.webm"))))
             elif m := re.match(r"^/api/jobs/([^/]+)/(\w+)$", path):
                 self.send_json(act(m.group(1), m.group(2), json.loads(self.read_body() or b"{}")))
             elif path == "/api/settings":
