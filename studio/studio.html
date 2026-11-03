@@ -327,7 +327,7 @@ function renderSettings() {
     <div class="card">
       <h2>Watch-along & style</h2>
       <div class="sub">Every video opens with your greeting over the logo, then a proper introduction (the topic, why it matters, the question read through, and the plan) before any working.</div>
-      ${box("hstyle", s.house_style ?? true, "Use the house style", "Pinned question, step labels, highlights and colour-coded variables, the same in every video. Untick to let Claude design each video freely, as before.")}
+      ${box("hstyle", s.house_style ?? true, "Use the house style", "Pinned question, step labels, highlights and colour-coded variables, the same in every video. Untick to let Claude design each video more freely (still in your brand colours and fonts).")}
       ${box("ptry", s.pause_try, "Pause & try moments", "One or two points where students are invited to pause and try the next step, with an on-screen countdown.")}
       ${box("mcheck", s.maths_check, "Independent maths check", "A second Claude solves every question from scratch and flags anything that disagrees with the script (uses a little more of your Claude allowance).")}
       <label for="notes-style">Your style notes (optional)</label><textarea id="notes-style" rows="2" placeholder="e.g. Always show a sketch for vectors questions. Use 'GDC' not 'calculator'.">${esc(s.house_notes || "")}</textarea>
@@ -342,7 +342,7 @@ function renderSettings() {
       <div class="row">
         <div><label for="chan">Channel name</label><input type="text" id="chan" value="${esc(s.channel)}"><div class="hint">Shown instead of the logo if no logo is uploaded.</div></div>
         <div><label for="badge">Badge</label><input type="text" id="badge" value="${esc(s.badge)}"><div class="hint">On thumbnails and worksheets, and added to titles for search.</div></div>
-        <div style="max-width:160px"><label for="accent">Accent colour</label><input type="color" id="accent" value="${esc(s.accent || "#FFD23F")}" style="height:40px;padding:4px"></div>
+        <div style="max-width:160px"><label for="accent">Accent colour</label><input type="color" id="accent" value="${esc(s.accent || "#CCAB57")}" style="height:40px;padding:4px"></div>
       </div>
       <label for="greet">Opening greeting</label><input type="text" id="greet" value="${esc(s.greeting || "")}" placeholder="e.g. Hello, and welcome to Mr. Liam IB Maths!">
       <div class="hint">Spoken over your logo in every new script. Leave empty for no greeting.</div>

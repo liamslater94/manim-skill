@@ -6,16 +6,28 @@ channel's accent colour) into each video folder; script.py starts with
     from manim import *
     from house_style import *
 
+The channel's brand (the Mr. Liam IB Maths logo and website): near-black ground, cream ink, sage green
+and gold; headlines in Newsreader (serif), body text in Inter, labels in letter-spaced gold Montserrat
+capitals. The fonts ship in brand-fonts/ next to this file and are registered on import.
+
 Palette and type
-    BG, INK, SOFT, PANEL, ACCENT, GOOD, WARN      colours
+    BG, INK, SOFT, MUTED, PANEL, LINE, GRID       ground, cream ink, secondary text, panels, rules
+    SAGE, SAGE_DEEP, GOLD, BLUE, CLAY, LILAC      brand colours and their companions
+    ACCENT (= GOLD), GOOD (= SAGE), WARN          highlight, right, careful
     VAR_COLORS                                    x, y, z, parameters... always the same colour
     TITLE_SIZE, BODY_SIZE, SMALL_SIZE             font sizes
     SAFE_BOTTOM                                   keep content above this y (captions, player bar)
 
+Words on screen (never plain Text/Tex, which look like any other Manim video)
+    heading("Stationary points")     Newsreader serif headline, cream
+    prose("Set the derivative to 0") Inter body text (wraps at `width`)
+    label("Topic 5 · Calculus")      letter-spaced Montserrat capitals in gold (eyebrows, tags)
+
 Building blocks (every helper that plays animations takes run_time and uses exactly that long)
     mt("3 x + 2 y = a")              MathTex split at spaces (outside braces) and colour-coded
     paint(mob)                       colour-code an existing MathTex built from separate parts
-    title_card("Title", "subtitle")  big title with an accent bar
+    brand_axes(...)                  Axes in the brand style; plot curves in SAGE, highlight in GOLD
+    title_card("Title", "subtitle", eyebrow="Topic 5 · Calculus")  serif title with a gold rule
     step_chip("Row reduce", 2)       small "STEP 2 · Row reduce" label, top right
     QuestionPin(question_mob)        compact copy of the question, pinned top left
     spotlight(mob) / Spotlight       soft accent box behind what is being talked about
@@ -29,9 +41,9 @@ Building blocks (every helper that plays animations takes run_time and uses exac
 import json
 from pathlib import Path
 
-from manim import (DOWN, LEFT, ORIGIN, RIGHT, UL, UP, UR, Arc, Circle, FadeIn, FadeOut, GrowFromCenter,
-                   ImageMobject, Indicate, Integer, Line, MathTex, RoundedRectangle, SurroundingRectangle, Tex, Text,
-                   ValueTracker, VGroup, always_redraw, config, linear)
+from manim import (DOWN, LEFT, ORIGIN, RIGHT, UL, UP, UR, Arc, Axes, Circle, FadeIn, FadeOut, GrowFromCenter,
+                   ImageMobject, Indicate, Integer, Line, MarkupText, MathTex, RoundedRectangle, SurroundingRectangle,
+                   Text, ValueTracker, VGroup, always_redraw, config, linear)
 
 _settings = {}
 try:
@@ -39,26 +51,94 @@ try:
 except (OSError, ValueError):
     pass
 
-BG = "#0F1419"
-INK = "#F4F1EA"
-SOFT = "#8A94A6"
-PANEL = "#1A2430"
-ACCENT = _settings.get("accent", "#FFD23F")
-GOOD = "#7BD389"
-WARN = "#FF6B6B"
+# brand palette (from the logo) and the supporting shades the website uses
+BG = "#0D1317"          # near-black ground
+INK = "#F3F1EB"         # cream
+SOFT = "#9AA19D"        # secondary text
+MUTED = "#B7BCB7"       # quieter body text
+PANEL = "#141B20"       # cards and pinned panels
+LINE = "#232D34"        # panel borders, rules
+GRID = "#1E272D"        # background grid
+AXIS = "#5A6870"        # axes and ticks
+SAGE = "#72AC8B"
+SAGE_DEEP = "#3F7558"
+GOLD = "#CCAB57"
+BLUE = "#7FA6C9"        # companions in the same muted, mid-light family
+CLAY = "#D98B6C"
+LILAC = "#AE9CCB"
+ACCENT = GOLD if _settings.get("accent", GOLD).upper() in ("#FFD23F", "") else _settings["accent"]
+GOOD = SAGE
+WARN = "#E07A5F"
 
 VAR_COLORS = {
-    "x": "#58C4DD", "y": "#F2C14E", "z": "#F78272",
-    "a": "#7BD389", "k": "#7BD389", "m": "#7BD389", "p": "#7BD389",
-    "t": "#C792EA", r"\lambda": "#C792EA", r"\mu": "#C792EA", "s": "#C792EA", r"\theta": "#C792EA",
+    "x": SAGE, "y": GOLD, "z": BLUE,
+    "a": CLAY, "k": CLAY, "m": CLAY, "p": CLAY,
+    "t": LILAC, r"\lambda": LILAC, r"\mu": LILAC, "s": LILAC, r"\theta": LILAC,
 }
 VAR_COLORS.update(_settings.get("var_colors", {}))
 
+SERIF, SERIF_MEDIUM, SANS, SANS_BOLD = "Newsreader", "Newsreader Medium", "Inter", "Inter SemiBold"
+CAPS = "Montserrat SemiBold"
 TITLE_SIZE, BODY_SIZE, SMALL_SIZE = 56, 40, 30
 MARGIN = 0.45
 SAFE_BOTTOM = -config.frame_height / 2 + 1.1
 
 config.background_color = BG
+
+
+def _register_fonts() -> None:
+    try:
+        import manimpango
+    except ImportError:
+        return
+    for folder in (Path(__file__).with_name("brand-fonts"), Path(__file__).resolve().parent / "fonts" / "brand"):
+        for ttf in sorted(folder.glob("*.ttf")) if folder.exists() else []:
+            try:
+                manimpango.register_font(str(ttf))
+            except Exception:  # noqa: BLE001 — a missing font falls back to the system's
+                pass
+
+
+_register_fonts()
+
+
+# ------------------------------------------------------------------- words --
+def heading(text: str, font_size: float = TITLE_SIZE, color=None, **kwargs):
+    """Newsreader serif headline (cream by default)."""
+    return Text(text, font=SERIF_MEDIUM, font_size=font_size, color=color or INK, **kwargs)
+
+
+def prose(text: str, font_size: float = 30, color=None, width: float | None = None, **kwargs):
+    """Inter body text; wraps to `width` (scene units) when given."""
+    mob = Text(text, font=SANS, font_size=font_size, color=color or MUTED, line_spacing=0.9, **kwargs)
+    if width and mob.width > width:
+        words, lines, cur = text.split(), [], ""
+        for w in words:
+            trial = f"{cur} {w}".strip()
+            if cur and Text(trial, font=SANS, font_size=font_size).width > width:
+                lines.append(cur)
+                cur = w
+            else:
+                cur = trial
+        lines.append(cur)
+        mob = Text("\n".join(lines), font=SANS, font_size=font_size, color=color or MUTED, line_spacing=0.9, **kwargs)
+    return mob
+
+
+def label(text: str, font_size: float = 20, color=None, spacing: float = 0.22):
+    """Letter-spaced Montserrat capitals (gold by default), like the website's eyebrows and tags."""
+    pts = int(font_size * spacing * 1024 * 0.2)   # Pango units at Manim's internal text scale
+    safe = text.upper().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return MarkupText(f'<span letter_spacing="{pts}">{safe}</span>', font=CAPS, font_size=font_size,
+                      color=color or ACCENT)
+
+
+def brand_axes(x_range=(-1, 6, 1), y_range=(-1, 4, 1), x_length=10, y_length=5.5, **kwargs):
+    """Axes in the brand style: soft grey-blue lines and ticks, Inter numbers."""
+    opts = {"color": AXIS, "stroke_width": 2.5, "include_tip": False}
+    opts.update(kwargs.pop("axis_config", {}))
+    return Axes(x_range=list(x_range), y_range=list(y_range), x_length=x_length, y_length=y_length,
+                axis_config=opts, **kwargs)
 
 
 # ------------------------------------------------------------------ maths text --
@@ -98,34 +178,43 @@ def mt(tex: str, font_size: float = BODY_SIZE, colors: dict | None = None, **kwa
 
 
 # --------------------------------------------------------------- layout pieces --
-def title_card(title: str, subtitle: str = "", width: float = 11.0):
-    head = Tex(title, font_size=TITLE_SIZE, color=INK)
+def title_card(title: str, subtitle: str = "", width: float = 11.0, eyebrow: str = ""):
+    """Serif title with a gold rule; optional gold caps eyebrow above and a quieter subtitle below."""
+    head = heading(title)
     if head.width > width:
         head.scale_to_fit_width(width)
-    bar = Line(LEFT, RIGHT, color=ACCENT, stroke_width=6).set_width(min(head.width, 4.5))
-    bar.next_to(head, DOWN, buff=0.25)
+    bar = Line(LEFT, RIGHT, color=ACCENT, stroke_width=4).set_width(min(head.width, 3.2))
+    bar.next_to(head, DOWN, buff=0.3)
     group = VGroup(head, bar)
     if subtitle:
-        sub = Tex(subtitle, font_size=SMALL_SIZE + 4, color=SOFT).next_to(bar, DOWN, buff=0.3)
-        group.add(sub)
+        group.add(prose(subtitle, font_size=30, color=SOFT).next_to(bar, DOWN, buff=0.3))
+    if eyebrow:
+        group.add(label(eyebrow, color=SAGE).next_to(head, UP, buff=0.35))
     return group.move_to(ORIGIN)
 
 
-def chip(text: str, color=None, font_size: float = 24):
-    label = Text(text, font_size=font_size, color=BG if color is None else INK, weight="BOLD")
-    box = RoundedRectangle(corner_radius=0.16, width=label.width + 0.45, height=label.height + 0.3,
-                           stroke_width=0, fill_color=color or ACCENT, fill_opacity=1)
-    return VGroup(box, label.move_to(box))
+def chip(text: str, color=None, font_size: float = 20, ink=None):
+    """Rounded tag with letter-spaced caps. Filled chips use dark text; dark chips use gold text."""
+    fill = color or ACCENT
+    dark = fill in (PANEL, BG, LINE, GRID)
+    words = label(text, font_size=font_size, color=ink or (ACCENT if dark else BG), spacing=0.14)
+    box = RoundedRectangle(corner_radius=0.14, width=words.width + 0.5, height=words.height + 0.32,
+                           stroke_width=1.2 if dark else 0, stroke_color=LINE, fill_color=fill, fill_opacity=1)
+    return VGroup(box, words.move_to(box))
 
 
 def step_chip(text: str, n: int | None = None):
     """'STEP 2 · Row reduce' label for the top-right corner."""
-    words = f"STEP {n} · {text}" if n is not None else text
-    return chip(words.upper(), PANEL, 22).to_corner(UR, buff=MARGIN)
+    words = f"Step {n} · {text}" if n is not None else text
+    return chip(words, PANEL, 18).to_corner(UR, buff=MARGIN)
 
 
-def callout(text: str, color=WARN, font_size: float = 26):
-    return chip(text, color, font_size)
+def callout(text: str, color=WARN, font_size: float = 24):
+    """A short warning or tip in a rounded tag, in sentence case (maths stays readable)."""
+    words = Text(text, font=SANS_BOLD, font_size=font_size, color=BG)
+    box = RoundedRectangle(corner_radius=0.14, width=words.width + 0.5, height=words.height + 0.34,
+                           stroke_width=0, fill_color=color, fill_opacity=1)
+    return VGroup(box, words.move_to(box))
 
 
 class QuestionPin(VGroup):
@@ -139,8 +228,8 @@ class QuestionPin(VGroup):
         if body.height > max_height:
             body.scale_to_fit_height(max_height)
         panel = RoundedRectangle(corner_radius=0.18, width=body.width + 0.6, height=body.height + 0.5,
-                                 stroke_color=SOFT, stroke_width=1.5, fill_color=PANEL, fill_opacity=0.94)
-        tab = chip(label, ACCENT, 20)
+                                 stroke_color=LINE, stroke_width=1.5, fill_color=PANEL, fill_opacity=0.96)
+        tab = chip(label, ACCENT, 16)
         body.move_to(panel)
         tab.move_to(panel.get_corner(UL) + RIGHT * (tab.width / 2 + 0.2))   # a tag sitting on the top edge
         self.add(panel, body, tab)
@@ -174,7 +263,7 @@ def pause_and_try(scene, seconds: float, text: str = "PAUSE & TRY", position=Non
     """Badge with a countdown ring for a 'pause the video and try it' moment. Takes exactly `seconds`."""
     seconds = max(1.6, float(seconds))
     tracker = ValueTracker(seconds)
-    ring_bg = Circle(radius=0.42, stroke_color=PANEL, stroke_width=8)
+    ring_bg = Circle(radius=0.42, stroke_color=LINE, stroke_width=8, fill_color=PANEL, fill_opacity=1)
 
     def ring():
         frac = max(0.001, tracker.get_value() / seconds)
@@ -184,8 +273,8 @@ def pause_and_try(scene, seconds: float, text: str = "PAUSE & TRY", position=Non
     arc = always_redraw(ring)
     count = always_redraw(lambda: Integer(max(0, int(tracker.get_value() + 0.999)), font_size=34, color=INK)
                           .move_to(ring_bg))
-    label = chip(text, ACCENT, 24).next_to(ring_bg, LEFT, buff=0.25)
-    badge = VGroup(label, ring_bg)
+    tag = chip(text, ACCENT, 18).next_to(ring_bg, LEFT, buff=0.25)
+    badge = VGroup(tag, ring_bg)
     if position is not None:
         badge.move_to(position)
     else:

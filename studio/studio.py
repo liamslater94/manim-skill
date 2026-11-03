@@ -58,7 +58,7 @@ DEFAULT_SETTINGS = {
     "logo": "",
     "channel": "Mr. Liam IB Maths",
     "badge": "IB Maths AA HL",
-    "accent": "#FFD23F",
+    "accent": "#CCAB57",
     "say": "z=zed",
     "natural_pauses": True,
     "greeting": "Hello, and welcome to Mr. Liam IB Maths!",
@@ -101,9 +101,12 @@ PROCS: dict[str, subprocess.Popen] = {}
 # ------------------------------------------------------------------ storage --
 def load_settings() -> dict:
     try:
-        return {**DEFAULT_SETTINGS, **json.loads(SETTINGS_FILE.read_text())}
+        s = {**DEFAULT_SETTINGS, **json.loads(SETTINGS_FILE.read_text())}
     except (OSError, ValueError):
         return dict(DEFAULT_SETTINGS)
+    if str(s.get("accent", "")).upper() == "#FFD23F":   # the old default yellow -> the brand gold
+        s["accent"] = DEFAULT_SETTINGS["accent"]
+    return s
 
 
 def save_settings(values: dict) -> dict:
@@ -551,8 +554,11 @@ def opening_instructions() -> str:
 def house_rules() -> str:
     s = load_settings()
     if not s.get("house_style", True):
-        rules = ("\nStyle: design the visuals yourself, following the skill. Keep the screen clean and uncluttered, "
-                 "build each step up as it is spoken, and colour-code variables consistently.\n")
+        rules = ("\nStyle: design the visuals yourself, following the skill, but keep the channel's brand: start "
+                 "script.py with `from manim import *` then `from house_style import *` (house_style.py is in the "
+                 "current directory) and use its palette (BG, INK, SAGE, GOLD and companions) and its heading(), "
+                 "prose() and label() for every word on screen, never plain Text() or Tex(). Keep the screen clean "
+                 "and uncluttered, build each step up as it is spoken, and colour-code variables consistently.\n")
         if s.get("pause_try"):
             rules += ("For a line that invites the viewer to pause and try, show the task on screen and a simple "
                       "countdown during that line's pause.\n")
@@ -561,6 +567,11 @@ def house_rules() -> str:
 House style: house_style.py is in the current directory; read it first. Start script.py with
 `from manim import *` then `from house_style import *`, and use its palette, sizes and helpers so every video
 on the channel looks the same and is easy to watch along to:
+- It is the channel's brand: near-black ground, cream ink, sage and gold, the Newsreader / Inter / Montserrat
+  fonts. Every word on screen goes through heading() (titles), prose() (sentences) or label() (gold
+  letter-spaced caps for eyebrows and tags); never plain Text() or Tex() for words, which looks like any other
+  Manim video. MathTex is for maths only. Plot curves in SAGE, mark key points and tangents in GOLD, use
+  brand_axes() for graphs, and only colours from the house palette.
 - Colour-code variables with mt() / paint(): x, y, z and the parameters keep their VAR_COLORS all video.
 - Keep everything above SAFE_BOTTOM: captions and the YouTube player bar cover the bottom of the frame.
 - Once the working starts (after the introduction), keep a QuestionPin of the question in the top-left
@@ -598,7 +609,8 @@ def prepare_assets(job_id: str) -> None:
     """Copy the house style, logo and worksheet template into the video folder."""
     d, s = job_dir(job_id), load_settings()
     shutil.copy(STUDIO_FILES / "house_style.py", d / "house_style.py")
-    (d / "house_style.json").write_text(json.dumps({"accent": s.get("accent") or "#FFD23F",
+    shutil.copytree(STUDIO_FILES / "fonts" / "brand", d / "brand-fonts", dirs_exist_ok=True)
+    (d / "house_style.json").write_text(json.dumps({"accent": s.get("accent") or "#CCAB57",
                                                     "channel": s.get("channel", "")}))
     logo = s.get("logo")
     has_logo = False
@@ -610,7 +622,7 @@ def prepare_assets(job_id: str) -> None:
         except Exception as e:  # noqa: BLE001
             log(job_id, f"Couldn't prepare the logo: {e}")
     tex = (STUDIO_FILES / "templates" / "worksheet.tex").read_text()
-    tex = (tex.replace("ACCENTHEX", (s.get("accent") or "#FFD23F").lstrip("#").upper())
+    tex = (tex.replace("ACCENTHEX", (s.get("accent") or "#CCAB57").lstrip("#").upper())
               .replace("CHANNELNAME", latex_escape(s.get("channel", "")))
               .replace("BADGETEXT", latex_escape(s.get("badge", "")))
               .replace("LOGOGRAPHIC", r"\colorbox{ink}{\includegraphics[height=1.1cm]{channel-logo.png}}"
@@ -897,7 +909,7 @@ def make_thumbnail(job_id: str, variant: int | None = None, **changes) -> list[P
         spec["frame_s"] = float(spec["frame_s"])
         render(video, d / THUMB_NAMES[i], spec["headline"], spec.get("subline", ""), spec["frame_s"],
                logo=s.get("logo") or None, channel=s.get("channel", ""), badge=s.get("badge", ""),
-               accent=s.get("accent") or "#FFD23F")
+               accent=s.get("accent") or "#CCAB57")
         made.append(d / THUMB_NAMES[i])
         log(job_id, f"Thumbnail {i + 1}: \"{spec['headline']}\" / \"{spec.get('subline', '')}\" at {spec['frame_s']:g}s.")
     for extra in THUMB_NAMES[len(specs):]:
@@ -928,7 +940,7 @@ def make_short(job_id: str, **changes) -> Path:
     log(job_id, f"Making the Short from {float(spec['start_s']):.1f}s to {float(spec['end_s']):.1f}s…")
     info = make(video, d / "short.mp4", float(spec["start_s"]), float(spec["end_s"]),
                 spec.get("title") or read_job(job_id)["title"], d / "subtitles.srt", s.get("logo") or None,
-                s.get("channel", ""), s.get("accent") or "#FFD23F")
+                s.get("channel", ""), s.get("accent") or "#CCAB57")
     (d / "shorts.json").write_text(json.dumps(info, indent=2))
     log(job_id, f"Short made: {info['seconds']:g}s, \"{info['title']}\".")
     return d / "short.mp4"
