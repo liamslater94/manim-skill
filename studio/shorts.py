@@ -22,7 +22,8 @@ W, H = 1080, 1920
 VIDEO_Y, VIDEO_H = 640, 608          # 16:9 at full width
 CAPTION_TOP = VIDEO_Y + VIDEO_H + 70
 MAX_S = 59.0
-CAPTION_FONTS = [Path("/System/Library/Fonts/Supplemental/Arial Bold.ttf"),
+CAPTION_FONTS = [Path(__file__).resolve().parent / "fonts" / "brand" / "Inter-SemiBold.ttf",
+                 Path("/System/Library/Fonts/Supplemental/Arial Bold.ttf"),
                  Path("/Library/Fonts/Arial Bold.ttf"),
                  Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")]
 
@@ -52,7 +53,7 @@ def snap(cues, start: float, end: float) -> tuple[float, float]:
 
 
 def base(title: str, logo, channel: str, accent: str) -> Image.Image:
-    accent_rgb = ImageColor.getrgb(accent or "#FFD23F")
+    accent_rgb = ImageColor.getrgb(accent or "#CCAB57")
     img = Image.new("RGB", (W, H), INK)
     draw = ImageDraw.Draw(img)
     # subtle vertical glow behind the video
@@ -103,7 +104,7 @@ def caption_png(text: str, path: Path, accent: str) -> Path:
 
 
 def make(video, out, start: float, end: float, title: str, srt=None, logo=None, channel: str = "",
-         accent: str = "#FFD23F") -> dict:
+         accent: str = "#CCAB57") -> dict:
     video, out = Path(video), Path(out)
     cues = parse_srt(Path(srt).read_text()) if srt and Path(srt).exists() else []
     start, end = snap(cues, start, end)
@@ -142,7 +143,7 @@ def main() -> None:
     p.add_argument("--srt")
     p.add_argument("--logo")
     p.add_argument("--channel", default="")
-    p.add_argument("--accent", default="#FFD23F")
+    p.add_argument("--accent", default="#CCAB57")
     a = p.parse_args()
     print(make(a.video, a.out, a.start, a.end, a.title, a.srt, a.logo, a.channel, a.accent))
 

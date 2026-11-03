@@ -17,11 +17,12 @@ from PIL import Image, ImageColor, ImageDraw, ImageFilter, ImageFont
 W, H = 1280, 720
 MARGIN = 64
 FONT_FILES = [
+    Path(__file__).resolve().parent / "fonts" / "brand" / "Montserrat-Bold.ttf",
     Path(__file__).resolve().parent / "fonts" / "Anton-Regular.ttf",
     Path("/System/Library/Fonts/Supplemental/Arial Black.ttf"),
     Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
 ]
-INK = (11, 15, 20)
+INK = (13, 19, 23)   # the brand near-black
 
 
 def font(size: int) -> ImageFont.FreeTypeFont:
@@ -110,8 +111,8 @@ def pill(draw: ImageDraw.ImageDraw, xy, text: str, size: int, fill, ink) -> tupl
 
 
 def render(video, out, headline: str, subline: str = "", frame_s: float = 0.0, logo=None,
-           channel: str = "", badge: str = "", accent: str = "#FFD23F") -> Path:
-    accent_rgb = ImageColor.getrgb(accent or "#FFD23F")
+           channel: str = "", badge: str = "", accent: str = "#CCAB57") -> Path:
+    accent_rgb = ImageColor.getrgb(accent or "#CCAB57")
     img = shade(video_frame(Path(video), frame_s)).convert("RGBA")
     draw = ImageDraw.Draw(img)
 
@@ -168,7 +169,7 @@ def main() -> None:
     p.add_argument("--logo")
     p.add_argument("--channel", default="")
     p.add_argument("--badge", default="")
-    p.add_argument("--accent", default="#FFD23F")
+    p.add_argument("--accent", default="#CCAB57")
     a = p.parse_args()
     print(render(a.video, a.out, a.headline, a.subline, a.frame, a.logo, a.channel, a.badge, a.accent))
 

@@ -24,7 +24,10 @@ manim skill end to end:
    sign-off once under ⚙ Settings → End screen. Prefer a cloned voice? Choose it under ⚙ Settings →
    Narration (`tools/tts-generate.py --clone`).
 4. **Video.** Claude Code writes the Manim animation timed to your narration, renders it,
-   checks frames for layout problems and fixes them. Every video uses the channel's house style
+   checks frames for layout problems and fixes them. Every video is in the Mr. Liam IB Maths brand:
+   near-black `#0D1317`, cream `#F3F1EB`, sage `#72AC8B` and gold `#CCAB57`, with Newsreader
+   headlines, Inter body text and letter-spaced gold Montserrat labels (bundled in
+   `studio/fonts/brand/`, SIL Open Font License; maths stays in LaTeX). It uses the channel's house style
    (`studio/house_style.py`): one colour per variable, the question pinned in the top-left corner,
    the current step labelled, what's being said highlighted on screen, answers boxed, and a
    countdown ring for "pause and try" moments. You watch it in the app and leave
